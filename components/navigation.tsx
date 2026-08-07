@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  BookOpen,
   CalendarDays,
   GraduationCap,
   LayoutDashboard,
@@ -34,7 +35,11 @@ const SECTIONS = [
     titre: "Planification",
     liens: [
       { href: "/", libelle: "Tableau de bord", Icone: LayoutDashboard },
-      { href: "/journees", libelle: "Journées pédagogiques", Icone: CalendarDays },
+      {
+        href: "/journees",
+        libelle: "Journées pédagogiques",
+        Icone: CalendarDays,
+      },
       { href: "/equite", libelle: "Équité", Icone: Scale },
     ],
   },
@@ -45,6 +50,10 @@ const SECTIONS = [
       { href: "/educateurs", libelle: "Éducateurs", Icone: Users },
       { href: "/parametres", libelle: "Paramètres", Icone: Settings },
     ],
+  },
+  {
+    titre: "Aide",
+    liens: [{ href: "/aide", libelle: "Guide d'utilisation", Icone: BookOpen }],
   },
 ];
 
