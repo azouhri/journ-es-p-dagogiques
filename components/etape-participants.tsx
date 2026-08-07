@@ -5,8 +5,8 @@ import { memo, useMemo, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import {
-  exporterParticipantsCsv,
-  importerParticipantsCsv,
+  classeurParticipants,
+  importerParticipants,
 } from "@/app/actions/participants";
 import { definirParticipants } from "@/app/actions/planification";
 import { Aide } from "@/components/aide";
@@ -124,21 +124,29 @@ export function EtapeParticipants({
 
   function exporter() {
     demarrer(async () => {
-      const csv = await exporterParticipantsCsv(journeeId);
+      const tampon = await classeurParticipants(journeeId);
+      if (!tampon) {
+        toast.error("Export impossible");
+        return;
+      }
       const lien = document.createElement("a");
       lien.href = URL.createObjectURL(
-        new Blob([csv], { type: "text/csv;charset=utf-8" }),
+        new Blob([tampon], {
+          type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        }),
       );
-      lien.download = "participants.csv";
+      lien.download = "participants.xlsx";
       lien.click();
       URL.revokeObjectURL(lien.href);
     });
   }
 
-  async function importer(fichier: File) {
-    const texte = await fichier.text();
+  function importer(fichier: File) {
+    const donnees = new FormData();
+    donnees.set("fichier", fichier);
+
     demarrer(async () => {
-      const r = await importerParticipantsCsv(journeeId, texte);
+      const r = await importerParticipants(journeeId, donnees);
       if (r.ok) {
         toast.success(r.message);
         // La sélection affichée doit refléter ce qui vient d'être enregistré.
@@ -232,7 +240,7 @@ export function EtapeParticipants({
         </Button>
 
         <Button variant="outline" disabled={enCours} onClick={exporter}>
-          Exporter la liste (CSV)
+          Exporter la liste (Excel)
         </Button>
 
         <Button
@@ -245,11 +253,11 @@ export function EtapeParticipants({
         <input
           ref={champFichier}
           type="file"
-          accept=".csv,text/csv"
+          accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0];
-            if (f) void importer(f);
+            if (f) importer(f);
           }}
         />
 
@@ -259,8 +267,8 @@ export function EtapeParticipants({
 
         <Aide titre="Sélection par fichier">
           <p>
-            L&apos;export contient tous les élèves actifs avec une colonne
-            «&nbsp;participe&nbsp;».
+            Le fichier exporté contient tous les élèves actifs avec une colonne
+            «&nbsp;Participe&nbsp;».
           </p>
           <p>
             Supprimer les lignes non voulues — ou mettre «&nbsp;non&nbsp;» —

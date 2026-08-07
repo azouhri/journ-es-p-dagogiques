@@ -4,9 +4,6 @@ import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
-import type { ResultatAction } from "./journees";
-
-import { genererCsv } from "@/lib/csv";
 import { courrielsExistants } from "@/lib/data/educateurs";
 import { essayer } from "@/lib/data/securise";
 import {
@@ -15,21 +12,44 @@ import {
   type RapportImport,
 } from "@/lib/import-eleves";
 import { prisma } from "@/lib/prisma";
+import { lireClasseur } from "@/lib/xlsx";
 import type { ResultatImport } from "./eleves";
+import type { ResultatAction } from "./journees";
+
+const STATUTS: Record<string, string> = {
+  TEMPS_PLEIN: "Temps plein",
+  TEMPS_PARTIEL: "Temps partiel",
+  OCCASIONNEL: "Occasionnel",
+  REMPLACANT: "Remplaçant",
+};
 
 export async function previsualiserImportEducateurs(
-  texte: string,
+  donnees: FormData,
 ): Promise<RapportImport<EducateurImporte>> {
-  // Même principe que pour les élèves : la prévisualisation reste possible
-  // sans base, seuls les doublons déjà enregistrés échappent alors au contrôle.
+  const fichier = donnees.get("fichier");
+  if (!(fichier instanceof File)) {
+    return {
+      lignes: [],
+      entetesManquantes: [],
+      nbNouveaux: 0,
+      nbDoublons: 0,
+      nbErreurs: 0,
+    };
+  }
+
+  const feuille = await lireClasseur(await fichier.arrayBuffer());
   const existants = await essayer(courrielsExistants, new Set<string>());
-  return analyserImportEducateurs(texte, existants);
+  return analyserImportEducateurs(feuille, existants);
 }
 
 export async function confirmerImportEducateurs(
-  texte: string,
+  donnees: FormData,
 ): Promise<ResultatImport> {
-  const rapport = analyserImportEducateurs(texte, await courrielsExistants());
+  const fichier = donnees.get("fichier");
+  if (!(fichier instanceof File)) return { importes: 0, ignores: 0 };
+
+  const feuille = await lireClasseur(await fichier.arrayBuffer());
+  const rapport = analyserImportEducateurs(feuille, await courrielsExistants());
 
   const aInserer = rapport.lignes
     .filter((l) => l.statut === "nouveau" && l.donnees !== null)
@@ -51,7 +71,7 @@ export async function confirmerImportEducateurs(
         data: {
           entite: "Educateur",
           entiteId: "import",
-          action: "import_csv",
+          action: "import_classeur",
           donneesApres: {
             nbImportes: aInserer.length,
             nbIgnores: rapport.nbDoublons + rapport.nbErreurs,
@@ -68,29 +88,20 @@ export async function confirmerImportEducateurs(
   };
 }
 
-export async function exporterEducateursCsv(): Promise<string> {
+export async function lignesEducateursPourExport() {
   const educateurs = await prisma.educateur.findMany({
     orderBy: [{ nom: "asc" }, { prenom: "asc" }],
   });
 
-  return genererCsv(
-    ["nom", "prenom", "courriel", "statut", "date d'embauche", "actif"],
-    educateurs.map((e) => [
-      e.nom,
-      e.prenom,
-      e.courriel,
-      e.statutEmploi,
-      e.dateEmbauche?.toISOString().slice(0, 10) ?? "",
-      e.actif ? "oui" : "non",
-    ]),
-  );
+  return educateurs.map((e) => [
+    e.nom,
+    e.prenom,
+    e.courriel ?? "",
+    STATUTS[e.statutEmploi] ?? e.statutEmploi,
+    e.dateEmbauche?.toISOString().slice(0, 10) ?? "",
+  ]);
 }
 
-/**
- * §5.2 — RÈGLE IMPORTANTE : désactiver un éducateur ne supprime ni ses
- * affectations passées ni ses compteurs. On ne bascule qu'un booléen ; aucune
- * donnée historique n'est touchée, et le tableau d'équité reste intact.
- */
 /** §5.2 — fiche éducateur. Le temps partiel n'est pas modélisé dans l'équité. */
 const SchemaEducateur = z.object({
   nom: z.string().trim().min(1, "Le nom est obligatoire."),
@@ -138,9 +149,9 @@ export async function enregistrerEducateur(
 
   // Tranches d'âge que l'éducateur encadre. Aucune case cochée = toutes les
   // tranches, ce qui est aussi le comportement par défaut côté algorithme.
-  const tranches = donnees.getAll("tranches").filter(
-    (t): t is string => typeof t === "string" && t.length > 0,
-  );
+  const tranches = donnees
+    .getAll("tranches")
+    .filter((t): t is string => typeof t === "string" && t.length > 0);
 
   try {
     const educateurId = id
@@ -168,6 +179,11 @@ export async function enregistrerEducateur(
   return { ok: true, message: id ? "Éducateur modifié." : "Éducateur ajouté." };
 }
 
+/**
+ * §5.2 — RÈGLE IMPORTANTE : désactiver un éducateur ne supprime ni ses
+ * affectations passées ni ses compteurs. On ne bascule qu'un booléen ; aucune
+ * donnée historique n'est touchée, et le tableau d'équité reste intact.
+ */
 export async function basculerActifEducateur(id: string): Promise<void> {
   const educateur = await prisma.educateur.findUnique({ where: { id } });
   if (!educateur) return;

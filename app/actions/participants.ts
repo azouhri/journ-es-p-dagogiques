@@ -2,40 +2,44 @@
 
 import { revalidatePath } from "next/cache";
 
-import { analyserCsv, genererCsv, normaliserEntete, trouverColonne } from "@/lib/csv";
 import { chargerConfiguration } from "@/lib/data/configuration";
-import { ageALaDate, resoudreDateReference, trancheDeLEleve } from "@/lib/domain/age";
+import {
+  ageALaDate,
+  resoudreDateReference,
+  trancheDeLEleve,
+} from "@/lib/domain/age";
 import { cleEleve } from "@/lib/import-eleves";
 import { prisma } from "@/lib/prisma";
+import { analyserDate, estAffirmatif, trouverColonne } from "@/lib/tableur";
+import { ecrireClasseur, lireClasseur } from "@/lib/xlsx";
 import type { ResultatAction } from "./journees";
 
 /**
- * Exporte la liste complète des élèves actifs avec une colonne « participe ».
+ * Construit le classeur des participants d'une journée.
  *
- * C'est le chemin de sélection en masse : la responsable exporte, supprime ou
- * marque les lignes dans Excel, puis réimporte. Sur 287 élèves, c'est plus
- * rapide que 287 cases à cocher.
+ * C'est le chemin de sélection en masse : la responsable exporte, marque ou
+ * supprime des lignes dans Excel, puis réimporte. Sur trois cents élèves,
+ * c'est nettement plus rapide que trois cents cases à cocher.
  */
-export async function exporterParticipantsCsv(
+export async function classeurParticipants(
   journeeId: string,
-): Promise<string> {
+): Promise<ArrayBuffer | null> {
   const journee = await prisma.journeePedagogique.findUnique({
     where: { id: journeeId },
     include: { participations: { select: { eleveId: true } } },
   });
-  if (!journee) return "";
+  if (!journee) return null;
 
   const inscrits = new Set(journee.participations.map((p) => p.eleveId));
 
-  const eleves = await prisma.eleve.findMany({
-    where: { actif: true },
-    orderBy: [{ nom: "asc" }, { prenom: "asc" }],
-  });
-
-  const config = await chargerConfiguration(journee.anneeScolaireId);
-  const annee = await prisma.anneeScolaire.findUnique({
-    where: { id: journee.anneeScolaireId },
-  });
+  const [eleves, config, annee] = await Promise.all([
+    prisma.eleve.findMany({
+      where: { actif: true },
+      orderBy: [{ nom: "asc" }, { prenom: "asc" }],
+    }),
+    chargerConfiguration(journee.anneeScolaireId),
+    prisma.anneeScolaire.findUnique({ where: { id: journee.anneeScolaireId } }),
+  ]);
 
   const dateReference =
     config && annee
@@ -46,50 +50,79 @@ export async function exporterParticipantsCsv(
         )
       : null;
 
-  return genererCsv(
-    ["nom", "prenom", "date de naissance", "age", "tranche", "participe"],
-    eleves.map((e) => {
-      const tranche =
-        config && dateReference
-          ? trancheDeLEleve(
-              {
-                id: e.id,
-                nom: e.nom,
-                prenom: e.prenom,
-                dateNaissance: e.dateNaissance,
-                niveauScolaire: e.niveauScolaire,
-              },
-              config.tranches,
-              config.reglages.modeGroupement,
-              dateReference,
-            )
-          : null;
+  const lignes = eleves.map((e) => {
+    const tranche =
+      config && dateReference
+        ? trancheDeLEleve(
+            {
+              id: e.id,
+              nom: e.nom,
+              prenom: e.prenom,
+              dateNaissance: e.dateNaissance,
+              niveauScolaire: e.niveauScolaire,
+            },
+            config.tranches,
+            config.reglages.modeGroupement,
+            dateReference,
+          )
+        : null;
 
-      return [
-        e.nom,
-        e.prenom,
-        e.dateNaissance.toISOString().slice(0, 10),
-        dateReference ? ageALaDate(e.dateNaissance, dateReference) : "",
-        tranche?.libelle ?? "hors tranche",
-        inscrits.has(e.id) ? "oui" : "non",
-      ];
-    }),
-  );
+    return [
+      e.nom,
+      e.prenom,
+      e.dateNaissance.toISOString().slice(0, 10),
+      dateReference ? ageALaDate(e.dateNaissance, dateReference) : "",
+      tranche?.libelle ?? "hors tranche",
+      inscrits.has(e.id) ? "oui" : "non",
+    ];
+  });
+
+  const tampon = await ecrireClasseur({
+    nomFeuille: "Participants",
+    titre: journee.nom,
+    sousTitre:
+      "Mettre « oui » dans la colonne Participe, ou supprimer les lignes non concernées, puis réimporter ce fichier.",
+    colonnes: [
+      { entete: "Nom", largeur: 22 },
+      { entete: "Prénom", largeur: 22 },
+      { entete: "Date de naissance", largeur: 20 },
+      { entete: "Âge", largeur: 8 },
+      { entete: "Tranche", largeur: 16 },
+      {
+        entete: "Participe",
+        largeur: 14,
+        note: "oui ou non. Une ligne supprimée équivaut à « non ».",
+      },
+    ],
+    lignes,
+    // Les inscrits ressortent d'un coup d'œil dans le classeur.
+    surligner: (ligne) =>
+      String(ligne.getCell(6).value ?? "").toLowerCase() === "oui"
+        ? "FFE6EEF8"
+        : null,
+  });
+
+  return tampon as ArrayBuffer;
 }
 
 /**
  * Réimporte une liste de participants.
  *
  * Deux usages acceptés, sans réglage à choisir :
- *   • le fichier porte une colonne « participe » -> elle fait foi ;
+ *   • le fichier porte une colonne « Participe » -> elle fait foi ;
  *   • sinon, toute ligne présente vaut inscription.
  * C'est ce qui permet de simplement supprimer des lignes dans Excel.
  */
-export async function importerParticipantsCsv(
+export async function importerParticipants(
   journeeId: string,
-  texte: string,
+  donnees: FormData,
 ): Promise<ResultatAction> {
-  const { entetes, lignes } = analyserCsv(texte);
+  const fichier = donnees.get("fichier");
+  if (!(fichier instanceof File)) {
+    return { ok: false, message: "Aucun fichier reçu." };
+  }
+
+  const { entetes, lignes } = await lireClasseur(await fichier.arrayBuffer());
 
   const iNom = trouverColonne(entetes, ["nom"]);
   const iPrenom = trouverColonne(entetes, ["prenom", "prénom"]);
@@ -104,7 +137,7 @@ export async function importerParticipantsCsv(
     return {
       ok: false,
       message:
-        "Colonnes attendues : nom, prénom, date de naissance (et, facultatif, participe).",
+        "Colonnes attendues : Nom, Prénom, Date de naissance. Repartir de la liste exportée.",
     };
   }
 
@@ -122,16 +155,12 @@ export async function importerParticipantsCsv(
     const dateBrute = (valeurs[iDate] ?? "").trim();
     if (!nom || !prenom || !dateBrute) continue;
 
-    if (iParticipe !== -1) {
-      const valeur = normaliserEntete(valeurs[iParticipe] ?? "");
-      // Une colonne vide vaut « non » : seule une marque explicite inscrit.
-      if (!["oui", "o", "yes", "y", "1", "vrai", "true", "x"].includes(valeur)) {
-        continue;
-      }
-    }
+    // Une colonne « Participe » vide vaut non : seule une marque explicite
+    // inscrit l'élève.
+    if (iParticipe !== -1 && !estAffirmatif(valeurs[iParticipe] ?? "")) continue;
 
-    const date = new Date(`${dateBrute}T00:00:00.000Z`);
-    if (Number.isNaN(date.getTime())) {
+    const date = analyserDate(dateBrute);
+    if (!date) {
       introuvables.push(`${nom} ${prenom}`);
       continue;
     }

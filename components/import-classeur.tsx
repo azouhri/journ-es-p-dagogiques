@@ -1,5 +1,6 @@
 "use client";
 
+import { Download, FileSpreadsheet } from "lucide-react";
 import { useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 
@@ -14,7 +15,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import {
   Table,
   TableBody,
@@ -24,7 +24,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-/** Forme minimale commune aux rapports d'import élèves et éducateurs. */
+/** Forme minimale commune aux rapports d'import. */
 export interface RapportAffichable {
   lignes: Array<{
     numeroLigne: number;
@@ -36,7 +36,6 @@ export interface RapportAffichable {
   nbNouveaux: number;
   nbDoublons: number;
   nbErreurs: number;
-  separateur: string;
 }
 
 const ETIQUETTES: Record<
@@ -44,68 +43,75 @@ const ETIQUETTES: Record<
   { texte: string; variante: "default" | "secondary" | "destructive" | "outline" }
 > = {
   nouveau: { texte: "Nouveau", variante: "default" },
-  doublon_fichier: { texte: "Doublon (fichier)", variante: "secondary" },
-  doublon_base: { texte: "Doublon (déjà en base)", variante: "secondary" },
+  doublon_fichier: { texte: "En double", variante: "secondary" },
+  doublon_base: { texte: "Déjà enregistré", variante: "secondary" },
   erreur: { texte: "Erreur", variante: "destructive" },
 };
 
-export function ImportCsv({
+export function ImportClasseur({
   titre,
   description,
-  colonnesAttendues,
-  exempleCsv,
+  colonnes,
+  urlModele,
   previsualiser,
   confirmer,
 }: {
   titre: string;
   description: string;
-  colonnesAttendues: string[];
-  exempleCsv: string;
-  previsualiser: (texte: string) => Promise<RapportAffichable>;
-  confirmer: (texte: string) => Promise<{ importes: number; ignores: number }>;
+  colonnes: string[];
+  urlModele: string;
+  previsualiser: (donnees: FormData) => Promise<RapportAffichable>;
+  confirmer: (donnees: FormData) => Promise<{ importes: number; ignores: number }>;
 }) {
-  const [texte, setTexte] = useState<string | null>(null);
-  const [nomFichier, setNomFichier] = useState<string | null>(null);
+  const [fichier, setFichier] = useState<File | null>(null);
   const [rapport, setRapport] = useState<RapportAffichable | null>(null);
   const [enCours, demarrer] = useTransition();
   const champFichier = useRef<HTMLInputElement>(null);
 
-  async function choisirFichier(fichier: File) {
-    // Lu en UTF-8 ; le BOM éventuel est retiré côté analyse.
-    const contenu = await fichier.text();
-    setTexte(contenu);
-    setNomFichier(fichier.name);
+  function reinitialiser() {
+    setFichier(null);
     setRapport(null);
+    if (champFichier.current) champFichier.current.value = "";
+  }
+
+  function choisir(choisi: File) {
+    setFichier(choisi);
+    setRapport(null);
+
+    const donnees = new FormData();
+    donnees.set("fichier", choisi);
 
     demarrer(async () => {
       try {
-        setRapport(await previsualiser(contenu));
+        setRapport(await previsualiser(donnees));
       } catch (erreur) {
         toast.error("Lecture du fichier impossible", {
-          description: erreur instanceof Error ? erreur.message : String(erreur),
+          description:
+            erreur instanceof Error ? erreur.message : String(erreur),
         });
       }
     });
   }
 
   function importer() {
-    if (!texte) return;
+    if (!fichier) return;
+    const donnees = new FormData();
+    donnees.set("fichier", fichier);
+
     demarrer(async () => {
       try {
-        const resultat = await confirmer(texte);
+        const resultat = await confirmer(donnees);
         toast.success(
           `${resultat.importes} ligne(s) importée(s)`,
           resultat.ignores > 0
             ? { description: `${resultat.ignores} ligne(s) ignorée(s).` }
             : undefined,
         );
-        setTexte(null);
-        setRapport(null);
-        setNomFichier(null);
-        if (champFichier.current) champFichier.current.value = "";
+        reinitialiser();
       } catch (erreur) {
         toast.error("Import impossible", {
-          description: erreur instanceof Error ? erreur.message : String(erreur),
+          description:
+            erreur instanceof Error ? erreur.message : String(erreur),
         });
       }
     });
@@ -123,64 +129,78 @@ export function ImportCsv({
           <CardDescription>{description}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Input
-            ref={champFichier}
-            type="file"
-            accept=".csv,text/csv"
-            disabled={enCours}
-            onChange={(e) => {
-              const fichier = e.target.files?.[0];
-              if (fichier) void choisirFichier(fichier);
-            }}
-          />
-
-          <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
-            {colonnesAttendues.length} colonnes reconnues
-            <Aide titre="Format attendu">
-              <p className="font-medium text-foreground">Colonnes</p>
-              <p>{colonnesAttendues.join(" · ")}</p>
-              <p className="font-medium text-foreground">Exemple</p>
-              <pre className="overflow-x-auto rounded bg-muted p-2 text-xs">
-                {exempleCsv}
-              </pre>
-              <p>
-                Séparateur point-virgule ou virgule, accents et majuscules
-                indifférents dans les en-têtes. Dates acceptées : 2017-04-12 ou
-                12/04/2017.
+          {/* Le modèle vierge d'abord : c'est le point de départ pour qui n'a
+              pas encore de fichier. */}
+          <div className="flex flex-wrap items-center gap-3 rounded-md border border-dashed p-4">
+            <FileSpreadsheet className="size-5 shrink-0 text-muted-foreground" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium">Pas encore de fichier ?</p>
+              <p className="text-xs text-muted-foreground">
+                Télécharger le modèle Excel, le remplir, puis le déposer ici.
               </p>
-            </Aide>
-          </p>
+            </div>
+            <Button variant="outline" size="sm" render={<a href={urlModele} />}>
+              <Download />
+              Modèle Excel
+            </Button>
+          </div>
+
+          <div className="space-y-2">
+            <label
+              htmlFor="classeur"
+              className="flex items-center gap-1.5 text-sm font-medium"
+            >
+              Fichier Excel à importer
+              <Aide titre="Colonnes attendues">
+                <p>{colonnes.join(" · ")}</p>
+                <p>
+                  L&apos;ordre des colonnes n&apos;a pas d&apos;importance, et
+                  les accents ou majuscules des en-têtes sont indifférents.
+                </p>
+              </Aide>
+            </label>
+            <input
+              ref={champFichier}
+              id="classeur"
+              type="file"
+              accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              disabled={enCours}
+              onChange={(e) => {
+                const choisi = e.target.files?.[0];
+                if (choisi) choisir(choisi);
+              }}
+              className="block w-full cursor-pointer rounded-md border border-input text-sm file:mr-3 file:cursor-pointer file:border-0 file:bg-muted file:px-4 file:py-2 file:text-sm file:font-medium"
+            />
+          </div>
         </CardContent>
       </Card>
 
       {rapport && (
         <Card>
           <CardHeader>
-            <CardTitle>Prévisualisation — {nomFichier}</CardTitle>
+            <CardTitle className="flex flex-wrap items-center gap-2">
+              Vérification — {fichier?.name}
+            </CardTitle>
             <CardDescription>
-              Rien n&apos;est encore enregistré. Vérifier le rapport avant
-              d&apos;importer.
+              Rien n&apos;est encore enregistré.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {rapport.entetesManquantes.length > 0 && (
               <Alert variant="destructive">
-                <AlertTitle>Colonnes obligatoires absentes</AlertTitle>
+                <AlertTitle>Colonnes manquantes</AlertTitle>
                 <AlertDescription>
-                  {rapport.entetesManquantes.join(", ")}. Aucune ligne ne peut
-                  être importée tant que le fichier ne les contient pas.
+                  {rapport.entetesManquantes.join(", ")}. Utiliser le modèle
+                  Excel pour repartir sur les bonnes colonnes.
                 </AlertDescription>
               </Alert>
             )}
 
             <div className="flex flex-wrap gap-2">
               <Badge>{rapport.nbNouveaux} à importer</Badge>
-              <Badge variant="secondary">{rapport.nbDoublons} doublon(s)</Badge>
+              <Badge variant="secondary">{rapport.nbDoublons} en double</Badge>
               <Badge variant={rapport.nbErreurs > 0 ? "destructive" : "outline"}>
                 {rapport.nbErreurs} erreur(s)
-              </Badge>
-              <Badge variant="outline">
-                séparateur «&nbsp;{rapport.separateur === "\t" ? "tab" : rapport.separateur}&nbsp;»
               </Badge>
             </div>
 
@@ -189,9 +209,9 @@ export function ImportCsv({
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-16">Ligne</TableHead>
-                    <TableHead className="w-48">Statut</TableHead>
+                    <TableHead className="w-44">Statut</TableHead>
                     <TableHead>Contenu</TableHead>
-                    <TableHead>Anomalies</TableHead>
+                    <TableHead>À corriger</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -208,7 +228,7 @@ export function ImportCsv({
                           </Badge>
                         </TableCell>
                         <TableCell className="max-w-md truncate text-sm">
-                          {ligne.valeurs.join(" · ")}
+                          {ligne.valeurs.filter(Boolean).join(" · ")}
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
                           {ligne.erreurs.join(" ")}
@@ -220,11 +240,14 @@ export function ImportCsv({
               </Table>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <Button onClick={importer} disabled={enCours || bloquant}>
                 {enCours
                   ? "Import en cours…"
                   : `Importer ${rapport.nbNouveaux} ligne(s)`}
+              </Button>
+              <Button variant="ghost" onClick={reinitialiser} disabled={enCours}>
+                Annuler
               </Button>
               <span className="text-sm text-muted-foreground">
                 Les doublons et les lignes en erreur sont ignorés.

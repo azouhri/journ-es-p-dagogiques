@@ -5,13 +5,30 @@ import {
   analyserImportEleves,
   cleEleve,
 } from "./import-eleves";
+import type { Feuille } from "./tableur";
+
+/**
+ * Construit une feuille depuis une écriture compacte : première ligne
+ * d'en-têtes, colonnes séparées par des points-virgules. Ce n'est qu'une
+ * commodité de lecture — l'analyse ne voit que des lignes de texte, quel que
+ * soit le format du fichier d'origine.
+ */
+function feuille(texte: string): Feuille {
+  const [entete, ...corps] = texte.trim().split("\n");
+  return {
+    entetes: entete.split(";"),
+    lignes: corps.map((l) => l.split(";")),
+  };
+}
 
 describe("analyserImportEleves — §5.1", () => {
   const enTete = "nom;prenom;date de naissance;niveau scolaire;notes";
 
-  it("lit un fichier correct", () => {
+  it("lit une feuille correcte", () => {
     const rapport = analyserImportEleves(
-      `${enTete}\nCôté;Alice;2017-04-12;3;\nRoy;Hugo;12/09/2016;4;allergie`,
+      feuille(`${enTete}
+Côté;Alice;2017-04-12;3;
+Roy;Hugo;12/09/2016;4;allergie`),
     );
 
     expect(rapport.nbErreurs).toBe(0);
@@ -28,21 +45,26 @@ describe("analyserImportEleves — §5.1", () => {
 
   it("accepte des en-têtes accentuées, en majuscules ou soulignées", () => {
     const rapport = analyserImportEleves(
-      "NOM;Prénom;DATE_DE_NAISSANCE\nRoy;Alice;2017-04-12",
+      feuille(`NOM;Prénom;DATE_DE_NAISSANCE
+Roy;Alice;2017-04-12`),
     );
     expect(rapport.entetesManquantes).toEqual([]);
     expect(rapport.nbNouveaux).toBe(1);
   });
 
   it("signale les colonnes obligatoires absentes", () => {
-    const rapport = analyserImportEleves("nom;prenom\nRoy;Alice");
+    const rapport = analyserImportEleves(
+      feuille(`nom;prenom
+Roy;Alice`),
+    );
     expect(rapport.entetesManquantes).toEqual(["date de naissance"]);
     expect(rapport.nbErreurs).toBe(1);
   });
 
   it("n'exige pas le niveau scolaire (§5.1)", () => {
     const rapport = analyserImportEleves(
-      "nom;prenom;date de naissance\nRoy;Alice;2017-04-12",
+      feuille(`nom;prenom;date de naissance
+Roy;Alice;2017-04-12`),
     );
     expect(rapport.nbErreurs).toBe(0);
     expect(rapport.lignes[0].donnees?.niveauScolaire).toBeNull();
@@ -50,7 +72,10 @@ describe("analyserImportEleves — §5.1", () => {
 
   it("rapporte les erreurs ligne par ligne, avec le numéro affiché par Excel", () => {
     const rapport = analyserImportEleves(
-      `${enTete}\nCôté;Alice;2017-04-12;3;\n;Hugo;2016-09-12;4;\nRoy;Léa;pas une date;2;`,
+      feuille(`${enTete}
+Côté;Alice;2017-04-12;3;
+;Hugo;2016-09-12;4;
+Roy;Léa;pas une date;2;`),
     );
 
     expect(rapport.nbErreurs).toBe(2);
@@ -65,14 +90,16 @@ describe("analyserImportEleves — §5.1", () => {
 
   it("refuse un niveau scolaire hors de 0 à 6", () => {
     const rapport = analyserImportEleves(
-      `${enTete}\nRoy;Alice;2017-04-12;12;`,
+      feuille(`${enTete}
+Roy;Alice;2017-04-12;12;`),
     );
     expect(rapport.lignes[0].erreurs[0]).toMatch(/Niveau scolaire invalide/);
   });
 
   it("refuse une date de naissance dans le futur", () => {
     const rapport = analyserImportEleves(
-      `${enTete}\nRoy;Alice;2099-01-01;3;`,
+      feuille(`${enTete}
+Roy;Alice;2099-01-01;3;`),
     );
     expect(rapport.lignes[0].erreurs).toContain(
       "Date de naissance dans le futur.",
@@ -81,7 +108,9 @@ describe("analyserImportEleves — §5.1", () => {
 
   it("détecte un doublon interne au fichier sur nom + prénom + date", () => {
     const rapport = analyserImportEleves(
-      `${enTete}\nRoy;Alice;2017-04-12;3;\nroy;ALICE;12/04/2017;3;`,
+      feuille(`${enTete}
+Roy;Alice;2017-04-12;3;
+roy;ALICE;12/04/2017;3;`),
     );
 
     expect(rapport.lignes[1].statut).toBe("doublon_fichier");
@@ -98,7 +127,8 @@ describe("analyserImportEleves — §5.1", () => {
       }),
     ]);
     const rapport = analyserImportEleves(
-      `${enTete}\nRoy;Alice;2017-04-12;3;`,
+      feuille(`${enTete}
+Roy;Alice;2017-04-12;3;`),
       existant,
     );
 
@@ -108,7 +138,9 @@ describe("analyserImportEleves — §5.1", () => {
 
   it("ne considère pas comme doublons deux homonymes nés des jours différents", () => {
     const rapport = analyserImportEleves(
-      `${enTete}\nRoy;Alice;2017-04-12;3;\nRoy;Alice;2018-04-12;2;`,
+      feuille(`${enTete}
+Roy;Alice;2017-04-12;3;
+Roy;Alice;2018-04-12;2;`),
     );
     expect(rapport.nbDoublons).toBe(0);
     expect(rapport.nbNouveaux).toBe(2);
@@ -117,17 +149,20 @@ describe("analyserImportEleves — §5.1", () => {
   it("n'écrit rien : il ne produit qu'un rapport", () => {
     // Garde-fou de conception — §5.1 impose une prévisualisation AVANT
     // validation. La fonction est pure, sans accès à la base.
-    const rapport = analyserImportEleves(`${enTete}\nRoy;Alice;2017-04-12;3;`);
+    const rapport = analyserImportEleves(
+      feuille(`${enTete}
+Roy;Alice;2017-04-12;3;`),
+    );
     expect(rapport.lignes).toHaveLength(1);
   });
 });
 
 describe("analyserImportEducateurs — §5.2", () => {
-  it("lit un fichier correct et normalise le statut d'emploi", () => {
+  it("lit une feuille correcte et normalise le statut d'emploi", () => {
     const rapport = analyserImportEducateurs(
-      "nom;prenom;courriel;statut;date d'embauche\n" +
-        "Tremblay;Marie;marie@ecole.qc.ca;temps plein;2021-08-15\n" +
-        "Roy;Luc;luc@ecole.qc.ca;Temps partiel;01/09/2022",
+      feuille(`nom;prenom;courriel;statut;date d'embauche
+Tremblay;Marie;marie@ecole.qc.ca;temps plein;2021-08-15
+Roy;Luc;luc@ecole.qc.ca;Temps partiel;01/09/2022`),
     );
 
     expect(rapport.nbErreurs).toBe(0);
@@ -139,28 +174,35 @@ describe("analyserImportEducateurs — §5.2", () => {
   });
 
   it("accepte un éducateur sans courriel ni date d'embauche", () => {
-    const rapport = analyserImportEducateurs("nom;prenom\nRoy;Luc");
+    const rapport = analyserImportEducateurs(
+      feuille(`nom;prenom
+Roy;Luc`),
+    );
     expect(rapport.nbErreurs).toBe(0);
     expect(rapport.lignes[0].donnees?.courriel).toBeNull();
   });
 
   it("refuse un courriel mal formé", () => {
     const rapport = analyserImportEducateurs(
-      "nom;prenom;courriel\nRoy;Luc;pas-un-courriel",
+      feuille(`nom;prenom;courriel
+Roy;Luc;pas-un-courriel`),
     );
     expect(rapport.lignes[0].erreurs[0]).toMatch(/Courriel invalide/);
   });
 
   it("refuse un statut d'emploi inconnu", () => {
     const rapport = analyserImportEducateurs(
-      "nom;prenom;statut\nRoy;Luc;stagiaire",
+      feuille(`nom;prenom;statut
+Roy;Luc;stagiaire`),
     );
     expect(rapport.lignes[0].erreurs[0]).toMatch(/Statut d'emploi inconnu/);
   });
 
   it("détecte un doublon de courriel", () => {
     const rapport = analyserImportEducateurs(
-      "nom;prenom;courriel\nRoy;Luc;luc@ecole.qc.ca\nRoyer;Lucie;LUC@ecole.qc.ca",
+      feuille(`nom;prenom;courriel
+Roy;Luc;luc@ecole.qc.ca
+Royer;Lucie;LUC@ecole.qc.ca`),
     );
     expect(rapport.lignes[1].statut).toBe("doublon_fichier");
   });

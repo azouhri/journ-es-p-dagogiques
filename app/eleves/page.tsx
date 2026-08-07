@@ -3,16 +3,14 @@ import { Suspense } from "react";
 import {
   basculerActifEleve,
   confirmerImportEleves,
-  exporterElevesCsv,
   previsualiserImportEleves,
 } from "@/app/actions/eleves";
 import { Aide } from "@/components/aide";
 import { BarreRecherche } from "@/components/barre-recherche";
 import { BoutonBasculeActif } from "@/components/bouton-bascule-actif";
-import { BoutonExport } from "@/components/bouton-export";
 import { BanniereConfiguration } from "@/components/banniere-configuration";
 import { FormulaireEleve } from "@/components/formulaire-eleve";
-import { ImportCsv } from "@/components/import-csv";
+import { ImportClasseur } from "@/components/import-classeur";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -81,7 +79,9 @@ export default async function PageEleves({
           </Aide>
         </h1>
         <div className="flex gap-2">
-          <BoutonExport action={exporterElevesCsv} nomFichier="eleves.csv" />
+          <Button variant="outline" render={<a href="/classeurs/eleves.xlsx" />}>
+            Exporter en Excel
+          </Button>
           <FormulaireEleve declencheur={<Button>Ajouter un élève</Button>} />
         </div>
       </div>
@@ -89,7 +89,7 @@ export default async function PageEleves({
       <Tabs defaultValue={etat.ok ? "liste" : "import"}>
         <TabsList>
           <TabsTrigger value="liste">Liste ({eleves.length})</TabsTrigger>
-          <TabsTrigger value="import">Import CSV</TabsTrigger>
+          <TabsTrigger value="import">Importer</TabsTrigger>
         </TabsList>
 
         <TabsContent value="liste" className="space-y-4">
@@ -99,8 +99,8 @@ export default async function PageEleves({
 
           {eleves.length === 0 ? (
             <div className="rounded-md border border-dashed p-10 text-center text-sm text-muted-foreground">
-              Aucun élève. Utiliser l&apos;onglet «&nbsp;Import CSV&nbsp;» pour
-              charger la liste.
+              Aucun élève. Utiliser l&apos;onglet «&nbsp;Importer&nbsp;» pour
+              charger la liste depuis un fichier Excel.
             </div>
           ) : (
             <div className="rounded-md border">
@@ -158,21 +158,17 @@ export default async function PageEleves({
         </TabsContent>
 
         <TabsContent value="import">
-          <ImportCsv
+          <ImportClasseur
             titre="Importer des élèves"
-            description="Prévisualisation obligatoire avant enregistrement. Les doublons sont détectés sur nom + prénom + date de naissance."
-            colonnesAttendues={[
-              "nom (obligatoire)",
-              "prénom (obligatoire)",
-              "date de naissance (obligatoire)",
-              "niveau scolaire (0 à 6, facultatif)",
-              "notes (facultatif)",
+            description="Vérification avant enregistrement : les doublons sont repérés sur le nom, le prénom et la date de naissance."
+            colonnes={[
+              "Nom (obligatoire)",
+              "Prénom (obligatoire)",
+              "Date de naissance (obligatoire)",
+              "Niveau scolaire (facultatif)",
+              "Notes (facultatif)",
             ]}
-            exempleCsv={
-              "nom;prenom;date de naissance;niveau scolaire;notes\n" +
-              "Côté;Alice;2017-04-12;3;\n" +
-              "Tremblay;Hugo;12/09/2016;4;allergie aux arachides"
-            }
+            urlModele="/classeurs/modele-eleves.xlsx"
             previsualiser={previsualiserImportEleves}
             confirmer={confirmerImportEleves}
           />

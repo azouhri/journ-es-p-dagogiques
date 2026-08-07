@@ -1,14 +1,19 @@
 /**
- * Import CSV des élèves et des éducateurs — spec §5.1, §5.2.
+ * Import des élèves et des éducateurs — spec §5.1, §5.2.
  *
- * « Import CSV avec prévisualisation, détection des doublons sur nom + date de
+ * « Import avec prévisualisation, détection des doublons sur nom + date de
  * naissance, et rapport d'erreurs ligne par ligne AVANT validation. »
  *
  * Rien n'est écrit en base ici : ce module produit un rapport que l'écran
  * affiche, et la responsable décide ensuite d'importer ou non.
  */
 
-import { analyserCsv, analyserDate, trouverColonne, type Separateur } from "./csv";
+import {
+  analyserDate,
+  analyserNiveauScolaire,
+  trouverColonne,
+  type Feuille,
+} from "./tableur";
 
 export type StatutLigne =
   | "nouveau"
@@ -31,7 +36,6 @@ export interface RapportImport<T> {
   nbNouveaux: number;
   nbDoublons: number;
   nbErreurs: number;
-  separateur: Separateur;
 }
 
 export interface EleveImporte {
@@ -68,10 +72,10 @@ export function cleEleve(
  *        distinguer un doublon interne au fichier d'un doublon avec l'existant.
  */
 export function analyserImportEleves(
-  texte: string,
+  feuille: Feuille,
   clesExistantes: ReadonlySet<string> = new Set(),
 ): RapportImport<EleveImporte> {
-  const { entetes, lignes, separateur } = analyserCsv(texte);
+  const { entetes, lignes } = feuille;
 
   const index = {
     nom: trouverColonne(entetes, ALIAS_ELEVE.nom),
@@ -128,16 +132,13 @@ export function analyserImportEleves(
       erreurs.push("Date de naissance dans le futur.");
     }
 
-    let niveauScolaire: number | null = null;
-    if (niveauBrut) {
-      const n = Number(niveauBrut);
-      if (!Number.isInteger(n) || n < 0 || n > 6) {
-        erreurs.push(
-          `Niveau scolaire invalide : « ${niveauBrut} ». Attendu : un entier de 0 (maternelle) à 6.`,
-        );
-      } else {
-        niveauScolaire = n;
-      }
+    // Accepte le chiffre comme le libellé : c'est le libellé qu'écrit
+    // l'export, et réimporter un fichier exporté doit fonctionner.
+    const niveauScolaire = analyserNiveauScolaire(niveauBrut);
+    if (niveauScolaire === undefined) {
+      erreurs.push(
+        `Niveau scolaire invalide : « ${niveauBrut} ». Attendu : Maternelle, 1re année… 6e année, ou un chiffre de 0 à 6.`,
+      );
     }
 
     if (erreurs.length > 0 || !dateNaissance) {
@@ -149,7 +150,7 @@ export function analyserImportEleves(
       nom,
       prenom,
       dateNaissance,
-      niveauScolaire,
+      niveauScolaire: niveauScolaire ?? null,
       notes: notes || null,
     };
 
@@ -175,7 +176,6 @@ export function analyserImportEleves(
       (l) => l.statut === "doublon_fichier" || l.statut === "doublon_base",
     ).length,
     nbErreurs: resultat.filter((l) => l.statut === "erreur").length,
-    separateur,
   };
 }
 
@@ -215,10 +215,10 @@ const STATUTS: Record<string, StatutEmploiImporte> = {
 };
 
 export function analyserImportEducateurs(
-  texte: string,
+  feuille: Feuille,
   courrielsExistants: ReadonlySet<string> = new Set(),
 ): RapportImport<EducateurImporte> {
-  const { entetes, lignes, separateur } = analyserCsv(texte);
+  const { entetes, lignes } = feuille;
 
   const index = {
     nom: trouverColonne(entetes, ALIAS_EDUCATEUR.nom),
@@ -328,6 +328,5 @@ export function analyserImportEducateurs(
       (l) => l.statut === "doublon_fichier" || l.statut === "doublon_base",
     ).length,
     nbErreurs: resultat.filter((l) => l.statut === "erreur").length,
-    separateur,
   };
 }
