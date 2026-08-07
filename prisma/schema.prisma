@@ -1,0 +1,660 @@
+// Générateur de planning des journées pédagogiques
+// Schéma de données — voir spec-journees-pedagogiques.md §11
+//
+// Conventions générales
+// ---------------------
+// * Les identifiants de modèles et de champs sont sans accents : Prisma
+//   n'accepte que [A-Za-z][A-Za-z0-9_]* comme identifiant. Les libellés
+//   affichés à l'utilisateur, eux, sont accentués normalement.
+//
+// * Toutes les heures sont stockées en MINUTES DEPUIS MINUIT (Int), jamais en
+//   DateTime. Un quart « 6 h 45 » devient 405. Trois raisons : aucun risque de
+//   décalage de fuseau, le calcul de chevauchement entre quarts est une simple
+//   comparaison d'entiers, et la durée d'un quart est une soustraction.
+//
+// * Il n'existe volontairement AUCUNE table de compteurs d'équité. Ils sont
+//   recalculés à la demande depuis Affectation × PresenceEducateur (§9.5).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ===========================================================================
+// Énumérations
+// ===========================================================================
+
+enum StatutAnnee {
+  PREPARATION
+  ACTIVE
+  ARCHIVEE
+}
+
+/// §4.1 — TOUS_GROUPES : une équipe commune (ex. l'ouverture).
+/// PAR_GROUPE : un effectif par groupe constitué.
+enum PorteeQuart {
+  TOUS_GROUPES
+  PAR_GROUPE
+}
+
+enum StatutJournee {
+  BROUILLON
+  GENERE
+  VALIDE
+}
+
+/// §9.6 — une journée non confirmée n'est pas fausse, elle est non vérifiée.
+enum StatutConfirmation {
+  A_CONFIRMER
+  CONFIRME
+}
+
+enum StatutPresenceEleve {
+  PRESENT
+  ABSENT
+  PARTI_TOT
+}
+
+/// §9.4 — ABSENT : aucun crédit, la place reste vide dans le réalisé.
+/// REMPLACE : aucun crédit pour le titulaire, le remplaçant est crédité.
+enum StatutPresenceEducateur {
+  PRESENT
+  ABSENT
+  REMPLACE
+}
+
+/// §5.2 — purement informatif. Le temps partiel n'est PAS modélisé dans
+/// l'équité (§13 q6) : une indisponibilité se déclare à l'étape 3 du parcours.
+enum StatutEmploi {
+  TEMPS_PLEIN
+  TEMPS_PARTIEL
+  OCCASIONNEL
+  REMPLACANT
+}
+
+/// §10 — quelle information découpe les groupes.
+enum ModeGroupement {
+  AGE_CALCULE
+  NIVEAU_SCOLAIRE
+}
+
+/// §10 — un éducateur peut-il tenir deux quarts non contigus le même jour ?
+enum PolitiqueDoublePoste {
+  JAMAIS
+  SI_EFFECTIF_INSUFFISANT
+  TOUJOURS
+}
+
+/// §10 — traitement d'un bloc de plusieurs jours consécutifs.
+enum PolitiqueBloc {
+  CHAQUE_JOUR_SEPAREMENT
+  MEME_EQUIPE_SUR_LE_BLOC
+}
+
+/// §10 — si l'effectif requis à l'ouverture dépasse le nombre de groupes.
+enum PolitiqueSurEffectifOuverture {
+  REDUIRE_AU_NOMBRE_DE_GROUPES
+  RENFORT_SUR_UN_GROUPE
+  AVANCE_PUIS_RETOUR
+}
+
+/// §8.1 — premier critère de départage après le compteur du quart lui-même.
+enum CritereDepartage {
+  HEURES_CUMULEES
+  NB_JOURNEES
+}
+
+/// Dans quelle mesure les tranches d'âge déclarées d'un éducateur contraignent
+/// son affectation à un groupe.
+///
+/// Relève d'un choix d'organisation, pas d'une contrainte légale : c'est donc
+/// un réglage, conformément au principe général du §13. Certains services
+/// rattachent un éducateur à une tranche pour l'année — il prépare son matériel
+/// une fois — d'autres font tourner tout le monde sur tous les âges.
+enum PolitiqueTrancheEducateur {
+  /// Aucune contrainte : n'importe quel éducateur peut encadrer n'importe quel
+  /// groupe. Comportement historique.
+  LIBRE
+  /// On privilégie les tranches déclarées, mais on s'en écarte plutôt que de
+  /// laisser un groupe sans éducateur.
+  PREFERER
+  /// Un éducateur n'encadre QUE les tranches qu'il a déclarées. Si aucune
+  /// répartition valide n'existe, la génération est refusée et l'explique.
+  IMPOSER
+}
+
+// ===========================================================================
+// Année scolaire et configuration
+// ===========================================================================
+
+model AnneeScolaire {
+  id         String      @id @default(cuid())
+  libelle    String // « 2025-2026 »
+  dateDebut  DateTime    @db.Date
+  dateFin    DateTime    @db.Date
+  statut     StatutAnnee @default(PREPARATION)
+  creeeLe    DateTime    @default(now())
+  modifieeLe DateTime    @updatedAt
+
+  typesQuart  TypeQuart[]
+  tranchesAge TrancheAge[]
+  reglages    Reglages?
+  versions    VersionConfiguration[]
+  journees    JourneePedagogique[]
+
+  @@unique([libelle])
+  @@map("annee_scolaire")
+}
+
+/// §4.1 / §4.2 — LA décision structurante : les quarts sont de la
+/// configuration, pas du code. Ajouter la soirée et la fermeture plus tard se
+/// fait en basculant `actif`, sans toucher à l'algorithme.
+model TypeQuart {
+  id              String        @id @default(cuid())
+  anneeScolaireId String
+  anneeScolaire   AnneeScolaire @relation(fields: [anneeScolaireId], references: [id], onDelete: Cascade)
+
+  code    String // OUVERTURE, MATINEE, APRES_MIDI, SOIREE, FERMETURE
+  libelle String
+
+  /// Minutes depuis minuit. 6 h 45 => 405, 17 h 30 => 1050.
+  debutMinutes Int
+  finMinutes   Int
+
+  portee PorteeQuart
+
+  /// Si portee = TOUS_GROUPES : effectif total pour la journée.
+  /// Si portee = PAR_GROUPE   : effectif requis POUR CHAQUE groupe.
+  effectifRequis Int @default(1)
+
+  /// §4.3 — le quart que l'éducateur poursuit obligatoirement ensuite.
+  /// L'ouverture enchaîne sur la matinée : affecter quelqu'un à l'ouverture
+  /// consomme donc aussi une place de la matinée.
+  enchaineSurId String?
+  enchaineSur   TypeQuart?  @relation("Enchainement", fields: [enchaineSurId], references: [id], onDelete: SetNull)
+  enchainePar   TypeQuart[] @relation("Enchainement")
+
+  actif Boolean @default(true)
+  ordre Int
+
+  affectations Affectation[]
+
+  @@unique([anneeScolaireId, code])
+  @@index([anneeScolaireId, actif, ordre])
+  @@map("type_quart")
+}
+
+/// §5.1 / §10 — les deux découpages coexistent en base pour que basculer
+/// `modeGroupement` ne demande aucune migration de données (§13 q1).
+model TrancheAge {
+  id              String        @id @default(cuid())
+  anneeScolaireId String
+  anneeScolaire   AnneeScolaire @relation(fields: [anneeScolaireId], references: [id], onDelete: Cascade)
+
+  libelle String // « 8-9 ans »
+
+  /// Bornes en années révolues, incluses. Utilisées si modeGroupement = AGE_CALCULE.
+  ageMin Int
+  ageMax Int
+
+  /// Bornes en niveau scolaire ordinal (maternelle = 0, 1re année = 1, …),
+  /// incluses. Utilisées si modeGroupement = NIVEAU_SCOLAIRE.
+  niveauMin Int?
+  niveauMax Int?
+
+  ordre Int
+
+  groupes    Groupe[]
+  educateurs EducateurTrancheAge[]
+
+  @@unique([anneeScolaireId, libelle])
+  @@index([anneeScolaireId, ordre])
+  @@map("tranche_age")
+}
+
+/// §10 — tous les réglages. Aucun comportement de l'algorithme n'est codé en
+/// dur : chaque génération relit cette table (§8.2).
+model Reglages {
+  id              String        @id @default(cuid())
+  anneeScolaireId String        @unique
+  anneeScolaire   AnneeScolaire @relation(fields: [anneeScolaireId], references: [id], onDelete: Cascade)
+
+  /// §3 — plafond réglementaire de 1 éducateur pour 20 élèves présents.
+  /// Configurable à la baisse uniquement ; 20 est le maximum légal.
+  capaciteMaxGroupe Int @default(20)
+  ratioMaxEleves    Int @default(20)
+
+  modeGroupement ModeGroupement @default(AGE_CALCULE)
+
+  /// §10 — date de référence pour le calcul de l'âge. Stockée en jour + mois
+  /// pour être réappliquée à n'importe quelle année scolaire.
+  dateReferenceAgeJour Int @default(30)
+  dateReferenceAgeMois Int @default(9)
+
+  /// §9.6 — délai avant le courriel de rappel de saisie des présences.
+  delaiRappelHeures Int @default(16)
+
+  /// §8.1, critère de départage n° 3.
+  eviterMemeQuartConsecutif Boolean @default(true)
+
+  /// §8.1, attribution aux groupes : privilégier la tranche où l'éducateur a
+  /// le plus d'HISTORIQUE. À distinguer de `politiqueTrancheEducateur`, qui
+  /// porte sur les tranches DÉCLARÉES.
+  continuiteTrancheAge Boolean @default(false)
+
+  /// Portée des tranches déclarées de chaque éducateur.
+  politiqueTrancheEducateur PolitiqueTrancheEducateur @default(LIBRE)
+
+  doublePoste          PolitiqueDoublePoste          @default(SI_EFFECTIF_INSUFFISANT)
+  politiqueBloc        PolitiqueBloc                 @default(CHAQUE_JOUR_SEPAREMENT)
+  surEffectifOuverture PolitiqueSurEffectifOuverture @default(REDUIRE_AU_NOMBRE_DE_GROUPES)
+  critereDepartage     CritereDepartage              @default(HEURES_CUMULEES)
+
+  /// §10 — report de l'écart résiduel sur l'année suivante.
+  reportEcartAnneeSuivante Boolean @default(true)
+
+  modifieLe DateTime @updatedAt
+
+  @@map("reglages")
+}
+
+/// §4.6 — RÈGLE ABSOLUE : une modification de configuration ne doit jamais
+/// altérer une journée déjà réalisée. Chaque modification des types de quart,
+/// des tranches d'âge ou des réglages crée une nouvelle version. Les versions
+/// ne sont JAMAIS écrasées ni supprimées.
+model VersionConfiguration {
+  id              String        @id @default(cuid())
+  anneeScolaireId String
+  anneeScolaire   AnneeScolaire @relation(fields: [anneeScolaireId], references: [id], onDelete: Cascade)
+
+  numero Int
+
+  /// Instantané complet : types de quart, tranches d'âge et réglages, tels
+  /// qu'ils étaient au moment de la génération. Json volontairement opaque —
+  /// il ne doit dépendre d'aucune table vivante.
+  snapshot Json
+
+  commentaire String?
+  creeeLe     DateTime @default(now())
+
+  journees JourneePedagogique[]
+
+  @@unique([anneeScolaireId, numero])
+  @@map("version_configuration")
+}
+
+// ===========================================================================
+// Personnes
+// ===========================================================================
+
+model Eleve {
+  id String @id @default(cuid())
+
+  nom            String
+  prenom         String
+  /// §5.1 — obligatoire, c'est elle qui permet le groupement par âge.
+  dateNaissance  DateTime @db.Date
+  /// §5.1 — facultatif. Ordinal : maternelle = 0, 1re année = 1, …
+  niveauScolaire Int?
+
+  notes           String?
+  actif           Boolean  @default(true)
+  dateInscription DateTime @default(now()) @db.Date
+
+  creeLe    DateTime @default(now())
+  modifieLe DateTime @updatedAt
+
+  participations Participation[]
+  membresGroupe  GroupeEleve[]
+  presences      PresenceEleve[]
+  /// §11 — prévu dès maintenant : un élève peut avoir deux tuteurs
+  /// (garde partagée). Aucun écran en Version 1.
+  tuteurs        EleveTuteur[]
+
+  /// §5.1 — détection de doublon à l'import CSV.
+  @@unique([nom, prenom, dateNaissance])
+  @@index([actif])
+  @@map("eleve")
+}
+
+/// §11 — modélisé dès la Version 1 pour ne rien casser plus tard (garde
+/// partagée). Non exposé dans l'interface de la Version 1.
+model Tuteur {
+  id        String   @id @default(cuid())
+  nom       String
+  prenom    String
+  courriel  String?
+  telephone String?
+  creeLe    DateTime @default(now())
+
+  eleves EleveTuteur[]
+
+  @@map("tuteur")
+}
+
+model EleveTuteur {
+  eleveId  String
+  eleve    Eleve  @relation(fields: [eleveId], references: [id], onDelete: Cascade)
+  tuteurId String
+  tuteur   Tuteur @relation(fields: [tuteurId], references: [id], onDelete: Cascade)
+
+  lien String? // « mère », « père », « tuteur légal »
+
+  @@id([eleveId, tuteurId])
+  @@map("eleve_tuteur")
+}
+
+model Educateur {
+  id String @id @default(cuid())
+
+  nom          String
+  prenom       String
+  courriel     String?      @unique
+  statutEmploi StatutEmploi @default(TEMPS_PLEIN)
+  dateEmbauche DateTime?    @db.Date
+
+  /// §5.2 — désactiver un éducateur ne supprime ni ses affectations passées
+  /// ni ses compteurs. L'historique d'équité doit rester intact.
+  actif Boolean @default(true)
+
+  creeLe    DateTime @default(now())
+  modifieLe DateTime @updatedAt
+
+  disponibilites Disponibilite[]
+  affectations   Affectation[]
+  /// Présences où cet éducateur intervient comme remplaçant (§9.4).
+  remplacements  PresenceEducateur[]   @relation("Remplacant")
+  /// Tranches d'âge que cet éducateur encadre.
+  tranches       EducateurTrancheAge[]
+
+  @@index([actif])
+  @@map("educateur")
+}
+
+/// Tranches d'âge déclarées d'un éducateur, pour une année scolaire donnée.
+///
+/// Le rattachement est volontairement ANNUEL : les tranches appartiennent à
+/// une année scolaire, et les compétences se redéclarent d'une année à
+/// l'autre. Un éducateur qui suit « ses » 6-7 ans devenus 8-9 ans n'a donc
+/// rien à débloquer de spécial.
+///
+/// Sans aucune ligne, l'éducateur est réputé pouvoir encadrer TOUTES les
+/// tranches. Ce défaut est délibéré : activer la politique ne doit pas figer
+/// toute génération tant que rien n'a été saisi.
+model EducateurTrancheAge {
+  educateurId  String
+  educateur    Educateur  @relation(fields: [educateurId], references: [id], onDelete: Cascade)
+  trancheAgeId String
+  trancheAge   TrancheAge @relation(fields: [trancheAgeId], references: [id], onDelete: Cascade)
+
+  @@id([educateurId, trancheAgeId])
+  @@index([trancheAgeId])
+  @@map("educateur_tranche_age")
+}
+
+// ===========================================================================
+// Journées pédagogiques
+// ===========================================================================
+
+model JourneePedagogique {
+  id              String        @id @default(cuid())
+  anneeScolaireId String
+  anneeScolaire   AnneeScolaire @relation(fields: [anneeScolaireId], references: [id], onDelete: Cascade)
+
+  nom    String
+  statut StatutJournee @default(BROUILLON)
+
+  /// §4.6 — la version de configuration en vigueur au moment de la
+  /// génération. Renseignée à la génération, jamais modifiée ensuite.
+  versionConfigurationId String?
+  versionConfiguration   VersionConfiguration? @relation(fields: [versionConfigurationId], references: [id], onDelete: Restrict)
+
+  genereeLe  DateTime?
+  valideeLe  DateTime?
+  creeeLe    DateTime  @default(now())
+  modifieeLe DateTime  @updatedAt
+
+  jours          JourPlanifie[]
+  participations Participation[]
+
+  @@index([anneeScolaireId, statut])
+  @@map("journee_pedagogique")
+}
+
+/// §4.4 — une journée pédagogique peut couvrir plusieurs jours consécutifs.
+/// Chaque jour est planifié séparément et la rotation se poursuit.
+model JourPlanifie {
+  id                   String             @id @default(cuid())
+  journeePedagogiqueId String
+  journeePedagogique   JourneePedagogique @relation(fields: [journeePedagogiqueId], references: [id], onDelete: Cascade)
+
+  date DateTime @db.Date
+
+  /// §9.6 — tant que le jour n'est pas confirmé : badge, alerte au tableau de
+  /// bord, courriel de rappel, et signalement dans le tableau d'équité.
+  statutConfirmation StatutConfirmation @default(A_CONFIRMER)
+  confirmeLe         DateTime?
+  confirmePar        String?
+  rappelEnvoyeLe     DateTime?
+
+  groupes        Groupe[]
+  affectations   Affectation[]
+  disponibilites Disponibilite[]
+  presencesEleve PresenceEleve[]
+
+  @@unique([journeePedagogiqueId, date])
+  @@index([date])
+  @@index([statutConfirmation])
+  @@map("jour_planifie")
+}
+
+/// §6 étape 2 — les élèves qui participent à la journée pédagogique.
+model Participation {
+  eleveId              String
+  eleve                Eleve              @relation(fields: [eleveId], references: [id], onDelete: Cascade)
+  journeePedagogiqueId String
+  journeePedagogique   JourneePedagogique @relation(fields: [journeePedagogiqueId], references: [id], onDelete: Cascade)
+
+  inscritLe DateTime @default(now())
+
+  @@id([eleveId, journeePedagogiqueId])
+  @@map("participation")
+}
+
+/// §6 étape 3 — un éducateur décoché est ignoré par la génération et son
+/// retard est reporté sur la journée pédagogique suivante.
+model Disponibilite {
+  educateurId    String
+  educateur      Educateur    @relation(fields: [educateurId], references: [id], onDelete: Cascade)
+  jourPlanifieId String
+  jourPlanifie   JourPlanifie @relation(fields: [jourPlanifieId], references: [id], onDelete: Cascade)
+
+  disponible Boolean @default(true)
+  motif      String?
+
+  @@id([educateurId, jourPlanifieId])
+  @@map("disponibilite")
+}
+
+/// §7 — constitution automatique. Une tranche dépassant la capacité maximale
+/// est scindée en sous-groupes équilibrés (27 élèves => 14 et 13).
+model Groupe {
+  id             String       @id @default(cuid())
+  jourPlanifieId String
+  jourPlanifie   JourPlanifie @relation(fields: [jourPlanifieId], references: [id], onDelete: Cascade)
+
+  trancheAgeId String
+  trancheAge   TrancheAge @relation(fields: [trancheAgeId], references: [id], onDelete: Restrict)
+
+  libelle String // « 8-9 ans — A »
+  ordre   Int
+
+  membres      GroupeEleve[]
+  affectations Affectation[]
+  presences    PresenceEleve[]
+
+  @@unique([jourPlanifieId, libelle])
+  @@index([jourPlanifieId, ordre])
+  @@map("groupe")
+}
+
+model GroupeEleve {
+  groupeId String
+  groupe   Groupe @relation(fields: [groupeId], references: [id], onDelete: Cascade)
+  eleveId  String
+  eleve    Eleve  @relation(fields: [eleveId], references: [id], onDelete: Cascade)
+
+  @@id([groupeId, eleveId])
+  @@map("groupe_eleve")
+}
+
+// ===========================================================================
+// Affectations et présences
+// ===========================================================================
+
+/// LE PRÉVU (§9.4). Créé à la génération, figé à la validation.
+///
+/// §4.6 — dénormalisation volontaire : le libellé et les heures du quart sont
+/// recopiés au moment de la création. Même si le type de quart est renommé,
+/// ré-horaire ou désactivé par la suite, l'affectation historique s'affiche
+/// telle qu'elle a été vécue, et les heures cumulées de septembre ne bougent
+/// pas parce qu'on a changé un horaire en janvier.
+model Affectation {
+  id             String       @id @default(cuid())
+  jourPlanifieId String
+  jourPlanifie   JourPlanifie @relation(fields: [jourPlanifieId], references: [id], onDelete: Cascade)
+
+  educateurId String
+  educateur   Educateur @relation(fields: [educateurId], references: [id], onDelete: Restrict)
+
+  typeQuartId String
+  typeQuart   TypeQuart @relation(fields: [typeQuartId], references: [id], onDelete: Restrict)
+
+  /// Null pour un quart de portée TOUS_GROUPES (ex. l'ouverture).
+  groupeId String?
+  groupe   Groupe? @relation(fields: [groupeId], references: [id], onDelete: SetNull)
+
+  // --- Copie figée du type de quart au moment de la création (§4.6) ---
+  quartCode         String
+  quartLibelle      String
+  quartDebutMinutes Int
+  quartFinMinutes   Int
+
+  /// §8.4 — la raison retenue, pour répondre factuellement à un éducateur qui
+  /// conteste son horaire. Ex. « ouverture : 3 ouvertures au compteur, le plus
+  /// bas de l'équipe ».
+  justification String?
+
+  /// Vrai si cette affectation découle d'un enchaînement (§4.3) plutôt que
+  /// d'un tri par compteur : la matinée d'un éducateur arrivé à l'ouverture.
+  issueEnchainement Boolean @default(false)
+
+  /// Vrai si l'affectation a été modifiée à la main à l'étape 6 du parcours.
+  ajusteeManuellement Boolean @default(false)
+
+  creeeLe DateTime @default(now())
+
+  presence   PresenceEducateur?
+  /// §11 — prévu dès maintenant : une affectation peut recevoir une
+  /// évaluation. Aucun écran en Version 1.
+  evaluation EvaluationAffectation?
+
+  @@unique([jourPlanifieId, educateurId, typeQuartId])
+  @@index([educateurId])
+  @@index([jourPlanifieId])
+  @@map("affectation")
+}
+
+/// LE RÉALISÉ, côté éducateur (§9.4).
+/// Pré-rempli à « PRESENT » dès la validation du planning : la responsable ne
+/// saisit que les exceptions.
+model PresenceEducateur {
+  id            String      @id @default(cuid())
+  affectationId String      @unique
+  affectation   Affectation @relation(fields: [affectationId], references: [id], onDelete: Cascade)
+
+  statut StatutPresenceEducateur @default(PRESENT)
+
+  /// Obligatoire au niveau applicatif quand statut = REMPLACE (§9.4).
+  /// C'est le remplaçant qui est crédité, pas le titulaire.
+  remplacantId String?
+  remplacant   Educateur? @relation("Remplacant", fields: [remplacantId], references: [id], onDelete: Restrict)
+
+  note      String?
+  saisieLe  DateTime @default(now())
+  modifieLe DateTime @updatedAt
+
+  @@index([statut])
+  @@map("presence_educateur")
+}
+
+/// LE RÉALISÉ, côté élève (§9.1).
+model PresenceEleve {
+  id             String       @id @default(cuid())
+  jourPlanifieId String
+  jourPlanifie   JourPlanifie @relation(fields: [jourPlanifieId], references: [id], onDelete: Cascade)
+
+  eleveId String
+  eleve   Eleve  @relation(fields: [eleveId], references: [id], onDelete: Cascade)
+
+  groupeId String
+  groupe   Groupe @relation(fields: [groupeId], references: [id], onDelete: Cascade)
+
+  statut StatutPresenceEleve @default(PRESENT)
+
+  /// Minutes depuis minuit, facultatives.
+  heureArriveeMinutes Int?
+  heureDepartMinutes  Int?
+
+  note      String?
+  saisieLe  DateTime @default(now())
+  modifieLe DateTime @updatedAt
+
+  @@unique([jourPlanifieId, eleveId])
+  @@index([groupeId])
+  @@map("presence_eleve")
+}
+
+/// §11 / §14 — prévu dès maintenant, aucun écran en Version 1.
+model EvaluationAffectation {
+  id            String      @id @default(cuid())
+  affectationId String      @unique
+  affectation   Affectation @relation(fields: [affectationId], references: [id], onDelete: Cascade)
+
+  note        Int?
+  commentaire String?
+  creeeLe     DateTime @default(now())
+
+  @@map("evaluation_affectation")
+}
+
+// ===========================================================================
+// Journal des modifications (§3 — Loi 25)
+// ===========================================================================
+
+/// §3 — « journal des modifications ». L'application manipule des données de
+/// mineurs ; toute écriture sur une entité porteuse de renseignements
+/// personnels y laisse une trace.
+model JournalModification {
+  id String @id @default(cuid())
+
+  entite   String // « Eleve », « Educateur », …
+  entiteId String
+  action   String // « creation », « modification », « desactivation », …
+
+  utilisateur String?
+
+  donneesAvant Json?
+  donneesApres Json?
+
+  creeLe DateTime @default(now())
+
+  @@index([entite, entiteId])
+  @@index([creeLe])
+  @@map("journal_modification")
+}

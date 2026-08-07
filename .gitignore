@@ -1,0 +1,59 @@
+# ---------------------------------------------------------------------------
+# Dépendances et artefacts de build
+# ---------------------------------------------------------------------------
+node_modules/
+.next/
+out/
+build/
+dist/
+next-env.d.ts
+tsconfig.tsbuildinfo
+coverage/
+
+# ---------------------------------------------------------------------------
+# Secrets — ne doivent JAMAIS être versionnés
+# ---------------------------------------------------------------------------
+# .env contient le mot de passe Postgres. Les variables sont à déclarer dans
+# le tableau de bord Vercel, pas dans le dépôt.
+.env
+.env.local
+.env*.local
+!.env.example
+
+# ---------------------------------------------------------------------------
+# Documents et notes : le dépôt ne contient que du code
+# ---------------------------------------------------------------------------
+*.md
+*.txt
+*.rtf
+*.doc
+*.docx
+
+# Deux exceptions volontaires :
+#   README.md                      — porte d'entrée du dépôt
+#   spec-journees-pedagogiques.md  — la spécification dont tout le code
+#                                    découle ; la perdre reviendrait à garder
+#                                    les réponses sans les questions.
+!README.md
+!spec-journees-pedagogiques.md
+
+# ---------------------------------------------------------------------------
+# Sorties de travail et fichiers temporaires
+# ---------------------------------------------------------------------------
+scratch-*
+sortie-*
+*.pdf
+*.xlsx
+*.csv
+*.log
+npm-debug.log*
+
+# ---------------------------------------------------------------------------
+# Environnement local
+# ---------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+# Configuration d'outillage propre à un poste, pas au projet.
+.claude/
