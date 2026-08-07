@@ -9,7 +9,7 @@ import {
 } from "@/app/actions/planification";
 import { ApercuGroupes } from "@/components/apercu-groupes";
 import { BoutonAction } from "@/components/bouton-action";
-import { Etape, FilEtapes, type EtatEtape } from "@/components/etape";
+import { Etape, FilEtapes, Parcours, type EtatEtape } from "@/components/etape";
 import { EtapeDisponibilites } from "@/components/etape-disponibilites";
 import { EtapeParticipants } from "@/components/etape-participants";
 import { PlanningJour } from "@/components/planning-jour";
@@ -94,6 +94,19 @@ export default async function PageJournee({
   const aParticipants = journee.participations.length > 0;
   const aDisponibilites = journee.jours.some(
     (j) => j.disponibilites.length > 0,
+  );
+  // Le résumé de l'étape 3 annonce le jour le plus dégarni du bloc : c'est
+  // celui qui décide de la faisabilité.
+  const indisponibles = Math.max(
+    0,
+    ...journee.jours.map(
+      (j) => j.disponibilites.filter((d) => !d.disponible).length,
+    ),
+  );
+  const groupesTotal = journee.jours.reduce((s, j) => s + j.groupes.length, 0);
+  const affectationsTotal = journee.jours.reduce(
+    (s, j) => s + j.affectations.length,
+    0,
   );
 
   // État de chacune des huit étapes du parcours (§6).
@@ -210,262 +223,308 @@ export default async function PageJournee({
         </div>
       )}
 
-      <Etape
-        numero={1}
-        titre="Créer la journée"
-        etat={etats[0]}
-        description="Nom, date unique ou bloc de dates consécutives."
-      >
-        <div className="flex flex-wrap gap-2 text-sm">
-          <Badge variant="outline">{journee.nom}</Badge>
-          <Badge variant="outline">
-            {journee.jours.length === 1
+      <Parcours>
+        <Etape
+          numero={1}
+          titre="Créer la journée"
+          etat={etats[0]}
+          description="Nom, date unique ou bloc de dates consécutives."
+          resume={`${
+            journee.jours.length === 1
               ? "1 jour"
-              : `${journee.jours.length} jours consécutifs`}
-          </Badge>
-          <Badge variant="outline">
-            année {journee.anneeScolaire.libelle}
-          </Badge>
-        </div>
-      </Etape>
-
-      <Etape
-        numero={2}
-        titre="Sélectionner les élèves participants"
-        etat={etats[1]}
-        description="Liste des élèves confirmés."
-        aide={
-          <p>
-            Inscrire les élèves dont la participation est confirmée. Les
-            réponses des parents se collectent en dehors de l&apos;application.
-          </p>
-        }
-      >
-        <EtapeParticipants
-          journeeId={id}
-          verrouille={verrouille}
-          eleves={elevesAffiches}
-          dejaInscrits={journee.participations.map((p) => p.eleveId)}
-        />
-      </Etape>
-
-      <Etape
-        numero={3}
-        titre="Confirmer les éducateurs disponibles"
-        etat={etats[2]}
-        description="Tous cochés par défaut ; décocher les absents."
-        aide={
-          <p>
-            Un éducateur décoché ne sera pas affecté ce jour-là. Il sera
-            prioritaire lors des prochaines journées, de façon à ce que
-            personne ne se retrouve lésé sur l&apos;année.
-          </p>
-        }
-      >
-        <div className="space-y-6">
-          {journee.jours.map((jour) => (
-            <div key={jour.id} className="space-y-2">
-              {journee.jours.length > 1 && (
-                <p className="text-sm font-medium">{dateFr.format(jour.date)}</p>
-              )}
-              <EtapeDisponibilites
-                jourPlanifieId={jour.id}
-                verrouille={verrouille}
-                educateurs={educateurs.map((e) => ({
-                  id: e.id,
-                  nom: e.nom,
-                  prenom: e.prenom,
-                }))}
-                indisponiblesInitiaux={jour.disponibilites
-                  .filter((d) => !d.disponible)
-                  .map((d) => d.educateurId)}
-              />
-            </div>
-          ))}
-          <Button variant="ghost" size="sm" render={<Link href="/educateurs" />}>
-            Ajouter un éducateur manquant
-          </Button>
-        </div>
-      </Etape>
-
-      <Etape
-        numero={4}
-        titre="Vérifier les tranches d'âge et l'effectif"
-        etat={etats[3]}
-        description="Aperçu des groupes et de l'effectif nécessaire."
-        aide={
-          <p>
-Un aperçu, rien de plus : aucun planning n'est encore créé.
-            Relancer la vérification après avoir modifié les élèves, les
-            tranches d'âge ou les disponibilités.
-          </p>
-        }
-      >
-        <div className="space-y-4">
-          <div className="flex flex-wrap gap-2">
-            {config?.tranches.map((t) => (
-              <Badge key={t.id} variant="outline">
-                {t.libelle} ({t.ageMin}–{t.ageMax} ans)
-              </Badge>
-            ))}
-            <Badge variant="secondary">
-              capacité max {config?.reglages.capaciteMaxGroupe ?? 20} par groupe
+              : `${journee.jours.length} jours consécutifs`
+          } · année ${journee.anneeScolaire.libelle}`}
+        >
+          <div className="flex flex-wrap gap-2 text-sm">
+            <Badge variant="outline">{journee.nom}</Badge>
+            <Badge variant="outline">
+              {journee.jours.length === 1
+                ? "1 jour"
+                : `${journee.jours.length} jours consécutifs`}
+            </Badge>
+            <Badge variant="outline">
+              année {journee.anneeScolaire.libelle}
             </Badge>
           </div>
+        </Etape>
 
-          <ApercuGroupes recharger={actionApercu} auto={aParticipants} />
-        </div>
-      </Etape>
-
-      <Etape
-        numero={5}
-        titre="Générer"
-        etat={etats[4]}
-        raisonAttente="Inscrire au moins un élève à l'étape 2 avant de générer."
-        description="Constitue les groupes, puis répartit les éducateurs."
-        aide={
-          <p>
-S'il manque des éducateurs, l'étape 4 le signale d'abord : le
-            planning existant n'est jamais effacé pour rien.
-          </p>
-        }
-      >
-        <div className="space-y-3">
-          <BoutonAction
-            action={actionGenerer}
-            libelle={aGenere ? "Régénérer le planning" : "Générer le planning"}
-            libelleEnCours="Génération…"
-            disabled={verrouille}
-            confirmation={
-              aGenere
-                ? "Régénérer efface le planning actuel et le recalcule depuis les compteurs. Continuer ?"
-                : undefined
-            }
+        <Etape
+          numero={2}
+          titre="Sélectionner les élèves participants"
+          etat={etats[1]}
+          description="Liste des élèves confirmés."
+          resume={
+            aParticipants
+              ? `${journee.participations.length} élève(s) inscrit(s)`
+              : "Aucun élève inscrit"
+          }
+          aide={
+            <p>
+              Inscrire les élèves dont la participation est confirmée. Les
+              réponses des parents se collectent en dehors de
+              l&apos;application.
+            </p>
+          }
+        >
+          <EtapeParticipants
+            journeeId={id}
+            verrouille={verrouille}
+            eleves={elevesAffiches}
+            dejaInscrits={journee.participations.map((p) => p.eleveId)}
           />
+        </Etape>
 
-          {journee.jours.map((jour) =>
-            jour.groupes.length === 0 ? null : (
-              <div
-                key={jour.id}
-                className="rounded-md border bg-muted/40 p-3 text-sm"
-              >
-                <p className="font-medium">{dateFr.format(jour.date)}</p>
-                <p className="text-muted-foreground">
-                  {jour.groupes.length} groupe(s) —{" "}
-                  {jour.groupes
-                    .map((g) => `${g.libelle} (${g._count.membres})`)
-                    .join(", ")}
-                </p>
+        <Etape
+          numero={3}
+          titre="Confirmer les éducateurs disponibles"
+          etat={etats[2]}
+          description="Tous cochés par défaut ; décocher les absents."
+          resume={
+            aDisponibilites
+              ? `${educateurs.length - indisponibles} éducateur(s) disponible(s) sur ${educateurs.length}`
+              : `${educateurs.length} éducateur(s) actifs, aucune absence signalée`
+          }
+          aide={
+            <p>
+              Un éducateur décoché ne sera pas affecté ce jour-là. Il sera
+              prioritaire lors des prochaines journées, de façon à ce que
+              personne ne se retrouve lésé sur l&apos;année.
+            </p>
+          }
+        >
+          <div className="space-y-6">
+            {journee.jours.map((jour) => (
+              <div key={jour.id} className="space-y-2">
+                {journee.jours.length > 1 && (
+                  <p className="text-sm font-medium">
+                    {dateFr.format(jour.date)}
+                  </p>
+                )}
+                <EtapeDisponibilites
+                  jourPlanifieId={jour.id}
+                  verrouille={verrouille}
+                  educateurs={educateurs.map((e) => ({
+                    id: e.id,
+                    nom: e.nom,
+                    prenom: e.prenom,
+                  }))}
+                  indisponiblesInitiaux={jour.disponibilites
+                    .filter((d) => !d.disponible)
+                    .map((d) => d.educateurId)}
+                />
               </div>
-            ),
-          )}
-        </div>
-      </Etape>
+            ))}
+            <Button
+              variant="ghost"
+              size="sm"
+              render={<Link href="/educateurs" />}
+            >
+              Ajouter un éducateur manquant
+            </Button>
+          </div>
+        </Etape>
 
-      <Etape
-        numero={6}
-        titre="Ajuster"
-        etat={etats[5]}
-        raisonAttente="Générer le planning à l'étape 5 pour pouvoir l'ajuster."
-        description="Cocher deux affectations pour les permuter."
-        aide={
-          <p>
-La répartition proposée tient compte de ce que chacun a déjà
-            fait cette année. Une permutation reste possible, mais elle peut
-            créer un déséquilibre.
-          </p>
-        }
-      >
-        <div className="space-y-6">
-          {journee.jours.map((jour) => (
-            <div key={jour.id} className="space-y-2">
-              {journee.jours.length > 1 && (
-                <p className="text-sm font-medium">{dateFr.format(jour.date)}</p>
-              )}
-              <PlanningJour
-                verrouille={verrouille}
-                affectations={jour.affectations.map((a) => ({
-                  id: a.id,
-                  quartCode: a.quartCode,
-                  quartLibelle: a.quartLibelle,
-                  horaire: `${versTexteFr(a.quartDebutMinutes)} – ${versTexteFr(a.quartFinMinutes)}`,
-                  educateur: `${a.educateur.nom} ${a.educateur.prenom}`,
-                  groupe: a.groupe?.libelle ?? null,
-                  justification: a.justification,
-                  issueEnchainement: a.issueEnchainement,
-                  ajusteeManuellement: a.ajusteeManuellement,
-                }))}
-              />
+        <Etape
+          numero={4}
+          titre="Vérifier les tranches d'âge et l'effectif"
+          etat={etats[3]}
+          description="Aperçu des groupes et de l'effectif nécessaire."
+          resume={`${config?.tranches.length ?? 0} tranche(s), ${config?.reglages.capaciteMaxGroupe ?? 20} élèves au maximum par groupe`}
+          aide={
+            <p>
+              Un aperçu, rien de plus : aucun planning n'est encore créé.
+              Relancer la vérification après avoir modifié les élèves, les
+              tranches d'âge ou les disponibilités.
+            </p>
+          }
+        >
+          <div className="space-y-4">
+            <div className="flex flex-wrap gap-2">
+              {config?.tranches.map((t) => (
+                <Badge key={t.id} variant="outline">
+                  {t.libelle} ({t.ageMin}–{t.ageMax} ans)
+                </Badge>
+              ))}
+              <Badge variant="secondary">
+                capacité max {config?.reglages.capaciteMaxGroupe ?? 20} par
+                groupe
+              </Badge>
             </div>
-          ))}
-        </div>
-      </Etape>
 
-      <Etape
-        numero={7}
-        titre="Valider"
-        etat={etats[6]}
-        raisonAttente="Générer le planning à l'étape 5 avant de le valider."
-        description="Rend le planning définitif."
-        aide={
-          <p>
-Tout le monde est alors noté présent d'avance : le jour venu, il
-            n'y aura que les absences et les remplacements à saisir.
-          </p>
-        }
-      >
-        <div className="flex flex-wrap items-center gap-3">
-          <BoutonAction
-            action={actionValider}
-            libelle="Valider la journée"
-            libelleEnCours="Validation…"
-            disabled={verrouille}
-          />
-          {verrouille && (
+            <ApercuGroupes recharger={actionApercu} auto={aParticipants} />
+          </div>
+        </Etape>
+
+        <Etape
+          numero={5}
+          titre="Générer"
+          etat={etats[4]}
+          raisonAttente="Inscrire au moins un élève à l'étape 2 avant de générer."
+          description="Constitue les groupes, puis répartit les éducateurs."
+          resume={
+            aGenere
+              ? `${groupesTotal} groupe(s) constitué(s)`
+              : "Planning pas encore généré"
+          }
+          aide={
+            <p>
+              S'il manque des éducateurs, l'étape 4 le signale d'abord : le
+              planning existant n'est jamais effacé pour rien.
+            </p>
+          }
+        >
+          <div className="space-y-3">
+            <BoutonAction
+              action={actionGenerer}
+              libelle={
+                aGenere ? "Régénérer le planning" : "Générer le planning"
+              }
+              libelleEnCours="Génération…"
+              disabled={verrouille}
+              confirmation={
+                aGenere
+                  ? "Régénérer efface le planning actuel et le recalcule depuis les compteurs. Continuer ?"
+                  : undefined
+              }
+            />
+
+            {journee.jours.map((jour) =>
+              jour.groupes.length === 0 ? null : (
+                <div
+                  key={jour.id}
+                  className="rounded-md border bg-muted/40 p-3 text-sm"
+                >
+                  <p className="font-medium">{dateFr.format(jour.date)}</p>
+                  <p className="text-muted-foreground">
+                    {jour.groupes.length} groupe(s) —{" "}
+                    {jour.groupes
+                      .map((g) => `${g.libelle} (${g._count.membres})`)
+                      .join(", ")}
+                  </p>
+                </div>
+              ),
+            )}
+          </div>
+        </Etape>
+
+        <Etape
+          numero={6}
+          titre="Ajuster"
+          etat={etats[5]}
+          raisonAttente="Générer le planning à l'étape 5 pour pouvoir l'ajuster."
+          description="Cocher deux affectations pour les permuter."
+          resume={
+            aGenere
+              ? `${affectationsTotal} affectation(s)${verrouille ? ", figées" : " modifiables"}`
+              : "Rien à ajuster pour l'instant"
+          }
+          aide={
+            <p>
+              La répartition proposée tient compte de ce que chacun a déjà fait
+              cette année. Une permutation reste possible, mais elle peut créer
+              un déséquilibre.
+            </p>
+          }
+        >
+          <div className="space-y-6">
+            {journee.jours.map((jour) => (
+              <div key={jour.id} className="space-y-2">
+                {journee.jours.length > 1 && (
+                  <p className="text-sm font-medium">
+                    {dateFr.format(jour.date)}
+                  </p>
+                )}
+                <PlanningJour
+                  verrouille={verrouille}
+                  affectations={jour.affectations.map((a) => ({
+                    id: a.id,
+                    quartCode: a.quartCode,
+                    quartLibelle: a.quartLibelle,
+                    horaire: `${versTexteFr(a.quartDebutMinutes)} – ${versTexteFr(a.quartFinMinutes)}`,
+                    educateur: `${a.educateur.nom} ${a.educateur.prenom}`,
+                    groupe: a.groupe?.libelle ?? null,
+                    justification: a.justification,
+                    issueEnchainement: a.issueEnchainement,
+                    ajusteeManuellement: a.ajusteeManuellement,
+                  }))}
+                />
+              </div>
+            ))}
+          </div>
+        </Etape>
+
+        <Etape
+          numero={7}
+          titre="Valider"
+          etat={etats[6]}
+          raisonAttente="Générer le planning à l'étape 5 avant de le valider."
+          description="Rend le planning définitif."
+          resume={
+            journee.statut === "VALIDE"
+              ? "Journée validée : reste à saisir les présences"
+              : "Planning pas encore validé"
+          }
+          aide={
+            <p>
+              Tout le monde est alors noté présent d'avance : le jour venu, il
+              n'y aura que les absences et les remplacements à saisir.
+            </p>
+          }
+        >
+          <div className="flex flex-wrap items-center gap-3">
+            <BoutonAction
+              action={actionValider}
+              libelle="Valider la journée"
+              libelleEnCours="Validation…"
+              disabled={verrouille}
+            />
+            {verrouille && (
+              <Button
+                variant="outline"
+                render={<Link href={`/journees/${id}/presences`} />}
+              >
+                Saisir les présences
+              </Button>
+            )}
+          </div>
+        </Etape>
+
+        <Etape
+          numero={8}
+          titre="Exporter"
+          etat={etats[7]}
+          raisonAttente="Valider la journée à l'étape 7 pour pouvoir l'exporter."
+          description="PDF pour affichage, Excel pour retraitement."
+          resume="Planning et feuille de présence, en PDF ou en Excel"
+          aide={
+            <p>
+              Les fichiers sont produits par l'application : aucune information
+              sur les élèves n'est envoyée ailleurs.
+            </p>
+          }
+        >
+          <div className="flex flex-wrap gap-2">
             <Button
               variant="outline"
-              render={<Link href={`/journees/${id}/presences`} />}
+              render={<a href={`/journees/${id}/export/planning.pdf`} />}
             >
-              Saisir les présences
+              Planning (PDF)
             </Button>
-          )}
-        </div>
-      </Etape>
-
-      <Etape
-        numero={8}
-        titre="Exporter"
-        etat={etats[7]}
-        raisonAttente="Valider la journée à l'étape 7 pour pouvoir l'exporter."
-        description="PDF pour affichage, Excel pour retraitement."
-        aide={
-          <p>
-Les fichiers sont produits par l'application : aucune information
-            sur les élèves n'est envoyée ailleurs.
-          </p>
-        }
-      >
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant="outline"
-            render={<a href={`/journees/${id}/export/planning.pdf`} />}
-          >
-            Planning (PDF)
-          </Button>
-          <Button
-            variant="outline"
-            render={<a href={`/journees/${id}/export/presences.pdf`} />}
-          >
-            Feuille de présence vierge (PDF)
-          </Button>
-          <Button
-            variant="outline"
-            render={<a href={`/journees/${id}/export/planning.xlsx`} />}
-          >
-            Planning (Excel)
-          </Button>
-        </div>
-      </Etape>
+            <Button
+              variant="outline"
+              render={<a href={`/journees/${id}/export/presences.pdf`} />}
+            >
+              Feuille de présence vierge (PDF)
+            </Button>
+            <Button
+              variant="outline"
+              render={<a href={`/journees/${id}/export/planning.xlsx`} />}
+            >
+              Planning (Excel)
+            </Button>
+          </div>
+        </Etape>
+      </Parcours>
 
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-destructive/30 p-4">
         <div className="text-sm">
