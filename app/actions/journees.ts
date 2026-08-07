@@ -11,6 +11,7 @@ const SchemaJournee = z
     nom: z.string().trim().min(1, "Le nom est obligatoire."),
     dateDebut: z.string().min(1, "La date de début est obligatoire."),
     dateFin: z.string().optional(),
+    anneeScolaireId: z.string().min(1, "L'année scolaire est obligatoire."),
   })
   .refine(
     (v) => !v.dateFin || v.dateFin >= v.dateDebut,
@@ -43,43 +44,34 @@ export async function creerJournee(
     nom: donnees.get("nom"),
     dateDebut: donnees.get("dateDebut"),
     dateFin: donnees.get("dateFin") || undefined,
+    anneeScolaireId: donnees.get("anneeScolaireId"),
   });
 
   if (!analyse.success) {
     return { ok: false, message: analyse.error.issues[0].message };
   }
 
-  const { nom, dateDebut, dateFin } = analyse.data;
+  const { nom, dateDebut, dateFin, anneeScolaireId } = analyse.data;
   const dates = joursEntre(dateDebut, dateFin || dateDebut);
-
-  // La journée est rattachée à l'année scolaire qui CONTIENT ses dates, pas
-  // simplement à l'année active. Sans cela, une journée d'août se retrouverait
-  // dans l'année qui s'est terminée en juin, et ses affectations viendraient
-  // fausser les compteurs d'équité de cette année-là.
   const premier = dates[0];
   const dernier = dates[dates.length - 1];
 
-  const annee = await prisma.anneeScolaire.findFirst({
-    where: { dateDebut: { lte: premier }, dateFin: { gte: dernier } },
+  const annee = await prisma.anneeScolaire.findUnique({
+    where: { id: anneeScolaireId },
   });
+  if (!annee) return { ok: false, message: "Année scolaire introuvable." };
 
-  if (!annee) {
-    const annees = await prisma.anneeScolaire.findMany({
-      orderBy: { dateDebut: "asc" },
-      select: { libelle: true, dateDebut: true, dateFin: true },
-    });
-    const periodes = annees
-      .map(
-        (a) =>
-          `${a.libelle} (${a.dateDebut.toISOString().slice(0, 10)} au ${a.dateFin.toISOString().slice(0, 10)})`,
-      )
-      .join(", ");
-
+  // Le formulaire borne déjà le calendrier à la période de l'année choisie ;
+  // ce contrôle reste nécessaire côté serveur. Une journée hors de sa période
+  // fausserait les compteurs d'équité de cette année-là.
+  if (premier < annee.dateDebut || dernier > annee.dateFin) {
+    const jourIso = (d: Date) => d.toISOString().slice(0, 10);
     return {
       ok: false,
-      message: annees.length
-        ? `Aucune année scolaire ne couvre ces dates. Années définies : ${periodes}.`
-        : "Aucune année scolaire définie. En créer une avant de planifier une journée.",
+      message:
+        `Ces dates sortent de l'année ${annee.libelle} ` +
+        `(${jourIso(annee.dateDebut)} au ${jourIso(annee.dateFin)}). ` +
+        `Choisir une autre année, ou ajuster sa période dans les paramètres.`,
     };
   }
 

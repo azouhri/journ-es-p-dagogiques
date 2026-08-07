@@ -1,8 +1,10 @@
 import { Aide } from "@/components/aide";
 import { BanniereConfiguration } from "@/components/banniere-configuration";
+import { FormulaireAnnee } from "@/components/formulaire-annee";
 import { FormulaireQuart } from "@/components/formulaire-quart";
 import { FormulaireReglages } from "@/components/formulaire-reglages";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -16,11 +18,26 @@ import { chargerConfiguration, listerVersions } from "@/lib/data/configuration";
 import { verifierConnexion } from "@/lib/data/connexion";
 import { essayer } from "@/lib/data/securise";
 import { versTexteFr } from "@/lib/domain/temps";
+import { prisma } from "@/lib/prisma";
 
-const dateFr = new Intl.DateTimeFormat("fr-CA", {
+const dateJour = new Intl.DateTimeFormat("fr-CA", {
+  dateStyle: "medium",
+  timeZone: "UTC",
+});
+
+const dateHeure = new Intl.DateTimeFormat("fr-CA", {
   dateStyle: "medium",
   timeStyle: "short",
 });
+
+const ETAT_ANNEE: Record<
+  string,
+  { texte: string; variante: "default" | "secondary" | "outline" }
+> = {
+  ACTIVE: { texte: "En cours", variante: "default" },
+  PREPARATION: { texte: "En préparation", variante: "outline" },
+  ARCHIVEE: { texte: "Terminée", variante: "secondary" },
+};
 
 export default async function PageParametres() {
   const etat = await verifierConnexion();
@@ -29,16 +46,23 @@ export default async function PageParametres() {
     ? await essayer(() => listerVersions(config.anneeScolaireId), [])
     : [];
 
+  const annees = await essayer(
+    () =>
+      prisma.anneeScolaire.findMany({
+        orderBy: { dateDebut: "desc" },
+        include: { _count: { select: { journees: true } } },
+      }),
+    [],
+  );
+
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-4 sm:p-6">
       {!etat.ok && <BanniereConfiguration etat={etat} />}
 
       <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
         Paramètres
-        <Aide titre="Modifier les paramètres">
-          <p>
-            Ces réglages s&apos;appliquent aux prochaines journées créées.
-          </p>
+        <Aide titre="Portée des paramètres">
+          <p>Ces réglages s&apos;appliquent aux prochaines journées créées.</p>
           <p>
             Les journées déjà planifiées gardent les horaires et les règles en
             vigueur au moment où elles ont été faites : changer un horaire
@@ -47,23 +71,93 @@ export default async function PageParametres() {
         </Aide>
       </h1>
 
-      {!config ? (
-        <div className="rounded-md border border-dashed p-10 text-center text-sm text-muted-foreground">
-          Aucune année scolaire active.
-        </div>
-      ) : (
-        <Tabs defaultValue="quarts">
-          <TabsList>
-            <TabsTrigger value="quarts">Types de quart</TabsTrigger>
-            <TabsTrigger value="tranches">Tranches d&apos;âge</TabsTrigger>
+      <Tabs defaultValue={config ? "quarts" : "annees"}>
+        <TabsList>
+          <TabsTrigger value="annees">Années scolaires</TabsTrigger>
+          <TabsTrigger value="quarts">Types de quart</TabsTrigger>
+          <TabsTrigger value="tranches">Tranches d&apos;âge</TabsTrigger>
+          <TabsTrigger value="reglages">Réglages</TabsTrigger>
+          <TabsTrigger value="historique">Historique</TabsTrigger>
+        </TabsList>
 
-            <TabsTrigger value="reglages">Réglages</TabsTrigger>
-            <TabsTrigger value="versions">
-              Versions ({versions.length})
-            </TabsTrigger>
-          </TabsList>
+        {/* --- Années scolaires ------------------------------------------- */}
+        <TabsContent value="annees" className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm text-muted-foreground">
+              Une seule année est en cours à la fois.
+            </p>
+            <FormulaireAnnee
+              declencheur={<Button>Nouvelle année scolaire</Button>}
+            />
+          </div>
 
-          <TabsContent value="quarts" className="space-y-4">
+          {annees.length === 0 ? (
+            <div className="rounded-md border border-dashed p-10 text-center text-sm text-muted-foreground">
+              Aucune année scolaire. En créer une pour commencer à planifier.
+            </div>
+          ) : (
+            <div className="rounded-md border">
+              <Table className="min-w-[44rem]">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Année</TableHead>
+                    <TableHead>Période</TableHead>
+                    <TableHead className="text-right">Journées</TableHead>
+                    <TableHead>État</TableHead>
+                    <TableHead className="text-right">Action</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {annees.map((a) => {
+                    const etiquette =
+                      ETAT_ANNEE[a.statut] ?? ETAT_ANNEE.PREPARATION;
+                    return (
+                      <TableRow key={a.id}>
+                        <TableCell className="font-medium">
+                          {a.libelle}
+                        </TableCell>
+                        <TableCell className="tabular-nums text-muted-foreground">
+                          {dateJour.format(a.dateDebut)} →{" "}
+                          {dateJour.format(a.dateFin)}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {a._count.journees}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={etiquette.variante}>
+                            {etiquette.texte}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <FormulaireAnnee
+                            annee={{
+                              id: a.id,
+                              libelle: a.libelle,
+                              dateDebut: a.dateDebut.toISOString().slice(0, 10),
+                              dateFin: a.dateFin.toISOString().slice(0, 10),
+                              statut: a.statut,
+                            }}
+                            declencheur={
+                              <Button variant="ghost" size="sm">
+                                Modifier
+                              </Button>
+                            }
+                          />
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </TabsContent>
+
+        {/* --- Types de quart --------------------------------------------- */}
+        <TabsContent value="quarts" className="space-y-4">
+          {!config ? (
+            <AucuneAnnee />
+          ) : (
             <div className="rounded-md border">
               <Table className="min-w-[44rem]">
                 <TableHeader>
@@ -84,7 +178,9 @@ export default async function PageParametres() {
                     );
                     return (
                       <TableRow key={q.id}>
-                        <TableCell className="font-medium">{q.libelle}</TableCell>
+                        <TableCell className="font-medium">
+                          {q.libelle}
+                        </TableCell>
                         <TableCell className="tabular-nums">
                           {versTexteFr(q.debutMinutes)} –{" "}
                           {versTexteFr(q.finMinutes)}
@@ -97,7 +193,10 @@ export default async function PageParametres() {
                         <TableCell className="text-right tabular-nums">
                           {q.effectifRequis}
                           {q.portee === "PAR_GROUPE" && (
-                            <span className="text-muted-foreground"> /groupe</span>
+                            <span className="text-muted-foreground">
+                              {" "}
+                              /groupe
+                            </span>
                           )}
                         </TableCell>
                         <TableCell className="text-muted-foreground">
@@ -117,9 +216,14 @@ export default async function PageParametres() {
                 </TableBody>
               </Table>
             </div>
-          </TabsContent>
+          )}
+        </TabsContent>
 
-          <TabsContent value="tranches" className="space-y-4">
+        {/* --- Tranches d'âge --------------------------------------------- */}
+        <TabsContent value="tranches" className="space-y-4">
+          {!config ? (
+            <AucuneAnnee />
+          ) : (
             <div className="rounded-md border">
               <Table className="min-w-[44rem]">
                 <TableHeader>
@@ -146,37 +250,73 @@ export default async function PageParametres() {
                 </TableBody>
               </Table>
             </div>
-          </TabsContent>
+          )}
+        </TabsContent>
 
-          <TabsContent value="reglages">
+        {/* --- Réglages ---------------------------------------------------- */}
+        <TabsContent value="reglages">
+          {!config ? (
+            <AucuneAnnee />
+          ) : (
             <FormulaireReglages
               anneeScolaireId={config.anneeScolaireId}
               reglages={config.reglages}
             />
-          </TabsContent>
+          )}
+        </TabsContent>
 
-          <TabsContent value="versions" className="space-y-4">
+        {/* --- Historique --------------------------------------------------- */}
+        <TabsContent value="historique" className="space-y-4">
+          <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+            Modifications apportées aux paramètres de {config?.anneeLibelle}
+            <Aide titre="À quoi sert cet historique">
+              <p>
+                Chaque modification des horaires, des tranches d&apos;âge ou des
+                règles est conservée ici, avec la date et le nombre de journées
+                qui s&apos;y rattachent.
+              </p>
+              <p>
+                C&apos;est ce qui garantit qu&apos;un changement d&apos;horaire
+                fait en janvier ne modifie pas les heures déjà travaillées en
+                septembre : chaque journée reste rattachée aux règles en vigueur
+                le jour où elle a été planifiée.
+              </p>
+              <p>
+                L&apos;historique se consulte seulement — on ne réécrit pas le
+                passé.
+              </p>
+            </Aide>
+          </p>
+
+          {versions.length === 0 ? (
+            <div className="rounded-md border border-dashed p-10 text-center text-sm text-muted-foreground">
+              Aucune modification enregistrée pour cette année.
+            </div>
+          ) : (
             <div className="rounded-md border">
               <Table className="min-w-[44rem]">
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-20">Version</TableHead>
-                    <TableHead>Créée le</TableHead>
-                    <TableHead>Motif</TableHead>
-                    <TableHead className="text-right">Journées liées</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Modification</TableHead>
+                    <TableHead className="text-right">
+                      Journées concernées
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {versions.map((v) => (
+                  {versions.map((v, i) => (
                     <TableRow key={v.id}>
-                      <TableCell className="tabular-nums font-medium">
-                        v{v.numero}
+                      <TableCell className="tabular-nums text-muted-foreground">
+                        {dateHeure.format(v.creeeLe)}
                       </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {dateFr.format(v.creeeLe)}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {v.commentaire ?? "—"}
+                      <TableCell>
+                        {v.commentaire ?? "Modification des paramètres"}
+                        {i === 0 && (
+                          <Badge variant="outline" className="ml-2 text-xs">
+                            en vigueur
+                          </Badge>
+                        )}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
                         {v._count.journees}
@@ -186,9 +326,18 @@ export default async function PageParametres() {
                 </TableBody>
               </Table>
             </div>
-          </TabsContent>
-        </Tabs>
-      )}
+          )}
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+function AucuneAnnee() {
+  return (
+    <div className="rounded-md border border-dashed p-10 text-center text-sm text-muted-foreground">
+      Aucune année scolaire en cours. En désigner une dans l&apos;onglet
+      «&nbsp;Années scolaires&nbsp;».
     </div>
   );
 }

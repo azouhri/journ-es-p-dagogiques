@@ -57,6 +57,23 @@ export default async function PageJournees() {
     j.jours.filter((d) => d.statutConfirmation === "A_CONFIRMER"),
   ).length;
 
+  // Le formulaire borne son calendrier aux dates de l'année choisie : il faut
+  // donc connaître les périodes avant d'ouvrir la boîte de dialogue.
+  const annees = await essayer(
+    () =>
+      prisma.anneeScolaire.findMany({
+        orderBy: { dateDebut: "desc" },
+        select: {
+          id: true,
+          libelle: true,
+          dateDebut: true,
+          dateFin: true,
+          statut: true,
+        },
+      }),
+    [],
+  );
+
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-4 sm:p-6">
       {!etat.ok && <BanniereConfiguration etat={etat} />}
@@ -72,7 +89,15 @@ export default async function PageJournees() {
             </p>
           </Aide>
         </h1>
-        <FormulaireJournee />
+        <FormulaireJournee
+          annees={annees.map((a) => ({
+            id: a.id,
+            libelle: a.libelle,
+            dateDebut: a.dateDebut.toISOString().slice(0, 10),
+            dateFin: a.dateFin.toISOString().slice(0, 10),
+            statut: a.statut,
+          }))}
+        />
       </div>
 
       {aConfirmer > 0 && (
