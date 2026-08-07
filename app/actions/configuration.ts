@@ -1,10 +1,12 @@
 "use server";
 
+import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { creerVersionConfiguration } from "@/lib/data/configuration";
 import { versMinutes } from "@/lib/domain/temps";
+import { entierFacultatif } from "@/lib/validation";
 import { prisma } from "@/lib/prisma";
 import type { ResultatAction } from "./journees";
 
@@ -74,6 +76,170 @@ export async function enregistrerTypeQuart(
     ok: true,
     message: `Quart modifié. Les journées déjà générées gardent leurs horaires.`,
   };
+}
+
+const SchemaTranche = z
+  .object({
+    id: z.string().optional(),
+    anneeScolaireId: z.string().min(1),
+    libelle: z.string().trim().min(1, "Le nom de la tranche est obligatoire."),
+    ageMin: z.coerce.number().int().min(0).max(21),
+    ageMax: z.coerce.number().int().min(0).max(21),
+    niveauMin: entierFacultatif(0, 6),
+    niveauMax: entierFacultatif(0, 6),
+  })
+  .refine((v) => v.ageMax >= v.ageMin, {
+    message: "L'âge maximum doit être supérieur ou égal au minimum.",
+    path: ["ageMax"],
+  })
+  .refine(
+    (v) =>
+      v.niveauMin === null || v.niveauMax === null || v.niveauMax >= v.niveauMin,
+    {
+      message: "Le niveau maximum doit être supérieur ou égal au minimum.",
+      path: ["niveauMax"],
+    },
+  );
+
+/**
+ * §5.3 / §10 — création et modification d'une tranche d'âge.
+ *
+ * Deux tranches qui se chevauchent rendraient le classement d'un élève
+ * ambigu : il tomberait dans la première rencontrée, au gré de l'ordre
+ * d'affichage. Le chevauchement est donc refusé, sur l'âge comme sur le
+ * niveau scolaire.
+ */
+export async function enregistrerTrancheAge(
+  _precedent: ResultatAction | null,
+  donnees: FormData,
+): Promise<ResultatAction> {
+  const analyse = SchemaTranche.safeParse({
+    id: (donnees.get("id") as string) || undefined,
+    anneeScolaireId: donnees.get("anneeScolaireId"),
+    libelle: donnees.get("libelle"),
+    ageMin: donnees.get("ageMin"),
+    ageMax: donnees.get("ageMax"),
+    niveauMin: donnees.get("niveauMin") ?? "",
+    niveauMax: donnees.get("niveauMax") ?? "",
+  });
+
+  if (!analyse.success) {
+    return { ok: false, message: analyse.error.issues[0].message };
+  }
+
+  const { id, anneeScolaireId, libelle, ageMin, ageMax, niveauMin, niveauMax } =
+    analyse.data;
+
+  const autres = await prisma.trancheAge.findMany({
+    where: { anneeScolaireId, ...(id ? { id: { not: id } } : {}) },
+    orderBy: { ordre: "asc" },
+  });
+
+  const chevauche = autres.find((t) => ageMin <= t.ageMax && t.ageMin <= ageMax);
+  if (chevauche) {
+    return {
+      ok: false,
+      message: `Chevauchement avec « ${chevauche.libelle} » (${chevauche.ageMin}-${chevauche.ageMax} ans) : un élève ne peut pas appartenir à deux tranches.`,
+    };
+  }
+
+  if (niveauMin !== null && niveauMax !== null) {
+    const chevaucheNiveau = autres.find(
+      (t) =>
+        t.niveauMin !== null &&
+        t.niveauMax !== null &&
+        niveauMin <= t.niveauMax &&
+        t.niveauMin <= niveauMax,
+    );
+    if (chevaucheNiveau) {
+      return {
+        ok: false,
+        message: `Chevauchement de niveau scolaire avec « ${chevaucheNiveau.libelle} ».`,
+      };
+    }
+  }
+
+  const valeurs = { libelle, ageMin, ageMax, niveauMin, niveauMax };
+
+  try {
+    if (id) {
+      await prisma.trancheAge.update({ where: { id }, data: valeurs });
+    } else {
+      await prisma.trancheAge.create({
+        data: {
+          ...valeurs,
+          anneeScolaireId,
+          // Les tranches se lisent du plus jeune au plus âgé.
+          ordre: ageMin,
+        },
+      });
+    }
+  } catch (erreur) {
+    if (
+      erreur instanceof Prisma.PrismaClientKnownRequestError &&
+      erreur.code === "P2002"
+    ) {
+      return {
+        ok: false,
+        message: `Une tranche « ${libelle} » existe déjà pour cette année.`,
+      };
+    }
+    throw erreur;
+  }
+
+  // Les tranches restent classées par âge croissant après chaque changement.
+  const toutes = await prisma.trancheAge.findMany({
+    where: { anneeScolaireId },
+    orderBy: { ageMin: "asc" },
+  });
+  for (const [i, t] of toutes.entries()) {
+    if (t.ordre !== i) {
+      await prisma.trancheAge.update({ where: { id: t.id }, data: { ordre: i } });
+    }
+  }
+
+  await creerVersionConfiguration(
+    anneeScolaireId,
+    id ? `Tranche « ${libelle} » modifiée.` : `Tranche « ${libelle} » ajoutée.`,
+  );
+
+  revalidatePath("/parametres");
+  return {
+    ok: true,
+    message: id
+      ? "Tranche modifiée. Les journées déjà planifiées gardent leurs groupes."
+      : "Tranche ajoutée.",
+  };
+}
+
+/**
+ * Supprime une tranche d'âge.
+ *
+ * Refusé dès qu'un groupe déjà constitué s'y rattache : effacer la tranche
+ * effacerait la trace de la composition d'une journée passée.
+ */
+export async function supprimerTrancheAge(id: string): Promise<ResultatAction> {
+  const tranche = await prisma.trancheAge.findUnique({
+    where: { id },
+    include: { _count: { select: { groupes: true } } },
+  });
+  if (!tranche) return { ok: false, message: "Tranche introuvable." };
+
+  if (tranche._count.groupes > 0) {
+    return {
+      ok: false,
+      message: `« ${tranche.libelle} » est utilisée par ${tranche._count.groupes} groupe(s) déjà constitué(s) et ne peut pas être supprimée.`,
+    };
+  }
+
+  await prisma.trancheAge.delete({ where: { id } });
+  await creerVersionConfiguration(
+    tranche.anneeScolaireId,
+    `Tranche « ${tranche.libelle} » supprimée.`,
+  );
+
+  revalidatePath("/parametres");
+  return { ok: true, message: "Tranche supprimée." };
 }
 
 const SchemaReglages = z.object({

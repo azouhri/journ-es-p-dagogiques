@@ -12,6 +12,7 @@ import {
   type RapportImport,
 } from "@/lib/import-eleves";
 import { prisma } from "@/lib/prisma";
+import { entierFacultatif } from "@/lib/validation";
 import { lireClasseur } from "@/lib/xlsx";
 import type { ResultatAction } from "./journees";
 
@@ -133,9 +134,7 @@ const SchemaEleve = z.object({
     .string()
     .min(1, "La date de naissance est obligatoire.")
     .refine((v) => !Number.isNaN(Date.parse(v)), "Date de naissance illisible."),
-  niveauScolaire: z
-    .union([z.coerce.number().int().min(0).max(6), z.literal("")])
-    .optional(),
+  niveauScolaire: entierFacultatif(0, 6),
   notes: z.string().optional(),
 });
 
@@ -162,10 +161,7 @@ export async function enregistrerEleve(
     nom,
     prenom,
     dateNaissance: new Date(`${dateNaissance}T00:00:00.000Z`),
-    niveauScolaire:
-      niveauScolaire === "" || niveauScolaire === undefined
-        ? null
-        : Number(niveauScolaire),
+    niveauScolaire,
     notes: notes?.trim() ? notes.trim() : null,
   };
 

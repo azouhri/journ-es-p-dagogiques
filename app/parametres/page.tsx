@@ -1,8 +1,10 @@
 import { Aide } from "@/components/aide";
 import { BanniereConfiguration } from "@/components/banniere-configuration";
 import { FormulaireAnnee } from "@/components/formulaire-annee";
+import { BoutonSupprimerTranche } from "@/components/bouton-supprimer-tranche";
 import { FormulaireQuart } from "@/components/formulaire-quart";
 import { FormulaireReglages } from "@/components/formulaire-reglages";
+import { FormulaireTranche } from "@/components/formulaire-tranche";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,6 +21,7 @@ import { verifierConnexion } from "@/lib/data/connexion";
 import { essayer } from "@/lib/data/securise";
 import { versTexteFr } from "@/lib/domain/temps";
 import { prisma } from "@/lib/prisma";
+import { NIVEAUX_SCOLAIRES } from "@/lib/tableur";
 
 const dateJour = new Intl.DateTimeFormat("fr-CA", {
   dateStyle: "medium",
@@ -54,6 +57,39 @@ export default async function PageParametres() {
       }),
     [],
   );
+
+  // Une tranche déjà utilisée par un groupe ne peut plus être supprimée :
+  // l'effacer effacerait la composition d'une journée passée.
+  const usages = config
+    ? await essayer(
+        () =>
+          prisma.groupe.groupBy({
+            by: ["trancheAgeId"],
+            where: { trancheAge: { anneeScolaireId: config.anneeScolaireId } },
+            _count: { _all: true },
+          }),
+        [],
+      )
+    : [];
+  const groupesParTranche = new Map(
+    usages.map((u) => [u.trancheAgeId, u._count._all]),
+  );
+
+  // Âges laissés de côté entre deux tranches, ou avant la première : un élève
+  // qui y tombe ne sera dans aucun groupe.
+  const trous: string[] = [];
+  if (config && config.tranches.length > 0) {
+    const triees = [...config.tranches].sort((a, b) => a.ageMin - b.ageMin);
+    for (let i = 1; i < triees.length; i++) {
+      const finPrecedente = triees[i - 1].ageMax;
+      const debutSuivante = triees[i].ageMin;
+      if (debutSuivante > finPrecedente + 1) {
+        const de = finPrecedente + 1;
+        const a = debutSuivante - 1;
+        trous.push(de === a ? `${de} ans` : `${de} à ${a} ans`);
+      }
+    }
+  }
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-4 sm:p-6">
@@ -224,32 +260,92 @@ export default async function PageParametres() {
           {!config ? (
             <AucuneAnnee />
           ) : (
-            <div className="rounded-md border">
-              <Table className="min-w-[44rem]">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Tranche</TableHead>
-                    <TableHead className="text-right">Âge</TableHead>
-                    <TableHead className="text-right">Niveau scolaire</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {config.tranches.map((t) => (
-                    <TableRow key={t.id}>
-                      <TableCell className="font-medium">{t.libelle}</TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {t.ageMin} – {t.ageMax} ans
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums text-muted-foreground">
-                        {t.niveauMin === null || t.niveauMax === null
-                          ? "—"
-                          : `${t.niveauMin} – ${t.niveauMax}`}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+            <>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm text-muted-foreground">
+                  Bornes incluses. Les tranches ne peuvent pas se chevaucher.
+                </p>
+                <FormulaireTranche
+                  anneeScolaireId={config.anneeScolaireId}
+                  declencheur={<Button>Ajouter une tranche</Button>}
+                />
+              </div>
+
+              {trous.length > 0 && (
+                <div className="flex items-center gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
+                  Aucune tranche ne couvre {trous.join(", ")}
+                  <Aide titre="Âges non couverts">
+                    <p>
+                      Un élève dont l&apos;âge ne tombe dans aucune tranche
+                      n&apos;est placé dans aucun groupe : il est signalé au
+                      moment de préparer la journée, mais il ne sera pas encadré.
+                    </p>
+                  </Aide>
+                </div>
+              )}
+
+              {config.tranches.length === 0 ? (
+                <div className="rounded-md border border-dashed p-10 text-center text-sm text-muted-foreground">
+                  Aucune tranche d&apos;âge. Sans tranche, aucun groupe ne peut
+                  être constitué.
+                </div>
+              ) : (
+                <div className="rounded-md border">
+                  <Table className="min-w-[44rem]">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Tranche</TableHead>
+                        <TableHead className="text-right">Âge</TableHead>
+                        <TableHead>Niveaux scolaires</TableHead>
+                        <TableHead className="text-right">Groupes</TableHead>
+                        <TableHead className="text-right">Action</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {config.tranches.map((t) => (
+                        <TableRow key={t.id}>
+                          <TableCell className="font-medium">
+                            {t.libelle}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {t.ageMin === t.ageMax
+                              ? `${t.ageMin} ans`
+                              : `${t.ageMin} – ${t.ageMax} ans`}
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {t.niveauMin === null || t.niveauMax === null
+                              ? "—"
+                              : t.niveauMin === t.niveauMax
+                                ? NIVEAUX_SCOLAIRES[t.niveauMin]
+                                : `${NIVEAUX_SCOLAIRES[t.niveauMin]} → ${NIVEAUX_SCOLAIRES[t.niveauMax]}`}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums text-muted-foreground">
+                            {groupesParTranche.get(t.id) ?? 0}
+                          </TableCell>
+                          <TableCell className="space-x-1 text-right">
+                            <FormulaireTranche
+                              anneeScolaireId={config.anneeScolaireId}
+                              tranche={t}
+                              declencheur={
+                                <Button variant="ghost" size="sm">
+                                  Modifier
+                                </Button>
+                              }
+                            />
+                            {(groupesParTranche.get(t.id) ?? 0) === 0 && (
+                              <BoutonSupprimerTranche
+                                id={t.id}
+                                libelle={t.libelle}
+                              />
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </>
           )}
         </TabsContent>
 
