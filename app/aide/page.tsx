@@ -619,11 +619,6 @@ export default async function PageAide() {
               et une tranche déjà utilisée par des groupes ne peut plus être
               supprimée.
             </li>
-            <li>
-              <strong>Les données restent hébergées au Canada</strong> et
-              l&apos;accès à l&apos;application demande une connexion
-              nominative.
-            </li>
           </ul>
         </SectionAide>
       </div>
