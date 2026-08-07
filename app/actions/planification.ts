@@ -8,6 +8,11 @@ import {
   chargerConfiguration,
   tranchesParEducateur,
 } from "@/lib/data/configuration";
+import {
+  chargerDroitsJournee,
+  refusSiPlanningFige,
+  refusSiPlanningFigePourJour,
+} from "@/lib/data/journees";
 import { resoudreDateReference } from "@/lib/domain/age";
 import {
   calculerCompteurs,
@@ -33,6 +38,9 @@ export async function definirParticipants(
   journeeId: string,
   eleveIds: string[],
 ): Promise<ResultatAction> {
+  const refus = await refusSiPlanningFige(journeeId);
+  if (refus) return { ok: false, message: refus };
+
   await prisma.$transaction([
     prisma.participation.deleteMany({
       where: { journeePedagogiqueId: journeeId },
@@ -59,6 +67,9 @@ export async function definirDisponibilites(
   jourPlanifieId: string,
   indisponibles: string[],
 ): Promise<ResultatAction> {
+  const refus = await refusSiPlanningFigePourJour(jourPlanifieId);
+  if (refus) return { ok: false, message: refus };
+
   const educateurs = await prisma.educateur.findMany({
     where: { actif: true },
     select: { id: true },
@@ -515,6 +526,11 @@ export async function permuterAffectations(
     };
   }
 
+  // Permuter après coup réattribuerait à quelqu'un d'autre une absence déjà
+  // saisie sur l'affectation d'origine.
+  const refus = await refusSiPlanningFigePourJour(a.jourPlanifieId);
+  if (refus) return { ok: false, message: refus };
+
   await prisma.$transaction([
     prisma.affectation.update({
       where: { id: a.id },
@@ -596,5 +612,65 @@ export async function validerJournee(
     ok: true,
     message:
       "Journée validée. Tout le monde est noté présent d'avance : il ne reste qu'à saisir les absences et les remplacements.",
+  };
+}
+
+/**
+ * Rouvre une journée validée pour la corriger.
+ *
+ * Permis tant que personne n'a relevé le déroulement réel de la journée
+ * (aucune confirmation, aucune absence saisie). Les présences pré-remplies à
+ * la validation sont alors toutes « présent » : elles ne portent aucune
+ * information et sont effacées, la prochaine validation les recréant.
+ */
+export async function devaliderJournee(
+  journeeId: string,
+): Promise<ResultatAction> {
+  const journee = await chargerDroitsJournee(journeeId);
+  if (!journee) return { ok: false, message: "Journée introuvable." };
+
+  if (!journee.droits.devalider) {
+    return {
+      ok: false,
+      message:
+        journee.droits.raisonDevalidationRefusee ??
+        "Cette journée n'est pas validée.",
+    };
+  }
+
+  const jours = await prisma.jourPlanifie.findMany({
+    where: { journeePedagogiqueId: journeeId },
+    select: { id: true },
+  });
+  const idsJours = jours.map((j) => j.id);
+
+  await prisma.$transaction([
+    prisma.presenceEducateur.deleteMany({
+      where: { affectation: { jourPlanifieId: { in: idsJours } } },
+    }),
+    prisma.presenceEleve.deleteMany({
+      where: { jourPlanifieId: { in: idsJours } },
+    }),
+    prisma.journeePedagogique.update({
+      where: { id: journeeId },
+      data: { statut: "GENERE", valideeLe: null },
+    }),
+    prisma.journalModification.create({
+      data: {
+        entite: "JourneePedagogique",
+        entiteId: journeeId,
+        action: "reouverture",
+        donneesAvant: { statut: "VALIDE" },
+        donneesApres: { statut: "GENERE", nom: journee.nom },
+      },
+    }),
+  ]);
+
+  revalidatePath(`/journees/${journeeId}`);
+  revalidatePath("/journees");
+  return {
+    ok: true,
+    message:
+      "Journée rouverte. Penser à rediffuser le planning après l'avoir revalidée.",
   };
 }

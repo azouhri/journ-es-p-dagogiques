@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import {
+  devaliderJournee,
   genererPlanning,
   previsualiserGroupes,
   validerJournee,
@@ -12,9 +13,14 @@ import { Etape, FilEtapes, type EtatEtape } from "@/components/etape";
 import { EtapeDisponibilites } from "@/components/etape-disponibilites";
 import { EtapeParticipants } from "@/components/etape-participants";
 import { PlanningJour } from "@/components/planning-jour";
+import { SuppressionJournee } from "@/components/suppression-journee";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { chargerConfiguration } from "@/lib/data/configuration";
+import {
+  chargerApercuSuppression,
+  chargerDroitsJournee,
+} from "@/lib/data/journees";
 import {
   ageALaDate,
   resoudreDateReference,
@@ -63,19 +69,27 @@ export default async function PageJournee({
 
   if (!journee) notFound();
 
-  const [eleves, educateurs, config] = await Promise.all([
-    prisma.eleve.findMany({
-      where: { actif: true },
-      orderBy: [{ nom: "asc" }, { prenom: "asc" }],
-    }),
-    prisma.educateur.findMany({
-      where: { actif: true },
-      orderBy: [{ nom: "asc" }, { prenom: "asc" }],
-    }),
-    chargerConfiguration(journee.anneeScolaireId),
-  ]);
+  const [eleves, educateurs, config, cycle, apercuSuppression] =
+    await Promise.all([
+      prisma.eleve.findMany({
+        where: { actif: true },
+        orderBy: [{ nom: "asc" }, { prenom: "asc" }],
+      }),
+      prisma.educateur.findMany({
+        where: { actif: true },
+        orderBy: [{ nom: "asc" }, { prenom: "asc" }],
+      }),
+      chargerConfiguration(journee.anneeScolaireId),
+      chargerDroitsJournee(id),
+      chargerApercuSuppression(id),
+    ]);
 
-  const verrouille = journee.statut === "VALIDE";
+  if (!cycle || !apercuSuppression) notFound();
+
+  const droits = cycle.droits;
+  // Le planning se fige quand la journée a été vécue, pas à la validation :
+  // une journée validée mais à venir reste rouvrable (lib/domain/cycle-journee).
+  const verrouille = !droits.modifierPlanning;
   const aGenere = journee.jours.some((j) => j.affectations.length > 0);
   const aParticipants = journee.participations.length > 0;
   const aDisponibilites = journee.jours.some(
@@ -143,6 +157,10 @@ export default async function PageJournee({
     "use server";
     return validerJournee(id);
   }
+  async function actionDevalider() {
+    "use server";
+    return devaliderJournee(id);
+  }
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 p-4 sm:p-6">
@@ -175,9 +193,20 @@ export default async function PageJournee({
       <FilEtapes etats={etats} />
 
       {verrouille && (
-        <div className="rounded-md border border-muted bg-muted/40 p-4 text-sm text-muted-foreground">
-          Journée validée : le planning ne peut plus être modifié. Il reste à
-          saisir les présences.
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-muted bg-muted/40 p-4 text-sm text-muted-foreground">
+          <p>
+            {droits.raisonPlanningFige} Les présences, elles, restent
+            corrigeables à tout moment.
+          </p>
+          {droits.devalider && (
+            <BoutonAction
+              action={actionDevalider}
+              libelle="Rouvrir pour modifier"
+              libelleEnCours="Réouverture…"
+              variant="outline"
+              confirmation="Rouvrir la journée pour la modifier ? Le planning déjà diffusé devra être rediffusé après revalidation."
+            />
+          )}
         </div>
       )}
 
@@ -437,6 +466,32 @@ Les fichiers sont produits par l'application : aucune information
           </Button>
         </div>
       </Etape>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-destructive/30 p-4">
+        <div className="text-sm">
+          <p className="font-medium">Annuler cette journée</p>
+          <p className="text-muted-foreground">
+            {apercuSuppression.affectations > 0
+              ? `${apercuSuppression.jours} jour(s), ${apercuSuppression.groupes} groupe(s) et ${apercuSuppression.affectations} affectation(s) seront effacés.`
+              : "Rien n'a encore été planifié pour cette journée."}
+          </p>
+        </div>
+        <SuppressionJournee
+          journeeId={id}
+          retourVers="/journees"
+          apercu={{
+            nom: apercuSuppression.nom,
+            niveau: apercuSuppression.niveau,
+            jours: apercuSuppression.jours,
+            groupes: apercuSuppression.groupes,
+            affectations: apercuSuppression.affectations,
+            educateursImpactes: apercuSuppression.educateursImpactes,
+            heuresRetirees:
+              Math.round(apercuSuppression.minutesRetirees / 6) / 10,
+            vecue: apercuSuppression.vecue,
+          }}
+        />
+      </div>
     </div>
   );
 }
