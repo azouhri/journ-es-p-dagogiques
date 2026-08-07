@@ -128,15 +128,16 @@ export default async function PageEquite() {
               Écart entre collègues, par type de quart
               <Aide titre="Lire l'écart">
                 <p>
-                  Mesuré entre éducateurs actifs uniquement. Un écart de 0 ou 1
-                  signifie que la rotation tient : personne n&apos;est cantonné
-                  à un rôle.
+                  Différence entre celui qui a tenu ce quart le plus souvent et
+                  celui qui l&apos;a tenu le moins. Un écart de 0 ou 1 signifie
+                  que la rotation tient.
                 </p>
                 <p>
-                  Un écart qui se creuse signale un retard accumulé, le plus
-                  souvent après plusieurs indisponibilités — ou simplement une
-                  embauche en cours d&apos;année, auquel cas il se résorbe de
-                  lui-même au fil des journées suivantes.
+                  La comparaison ne retient que les {tableau.compares}{" "}
+                  éducateurs présents sur une part comparable de l&apos;année.
+                  {tableau.partiels > 0
+                    ? ` ${tableau.partiels} autre(s), arrivé(s) en cours d'année ou longuement absent(s), sont écartés : ils tiennent forcément moins de quarts sans avoir été lésés.`
+                    : ""}
                 </p>
               </Aide>
             </p>

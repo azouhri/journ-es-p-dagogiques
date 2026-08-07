@@ -5,6 +5,7 @@ import {
   beneficiaireDuCredit,
   calculerCompteurs,
   ecartSurQuart,
+  separerComparables,
 } from "./equite";
 
 function affectation(
@@ -157,6 +158,67 @@ describe("calculerCompteurs — §9.5", () => {
 
     expect(avant.get("e1")!.parQuart.MATINEE).toBe(1);
     expect(apres.get("e1")!.parQuart.MATINEE).toBeUndefined();
+  });
+});
+
+describe("separerComparables", () => {
+  const compteur = (id: string, journees: number) => ({
+    educateurId: id,
+    parQuart: {},
+    minutesCumulees: journees * 300,
+    nbJourneesTravaillees: journees,
+  });
+
+  it("écarte celui qui n'a fait qu'une partie de l'année", () => {
+    // 5 jours contre 12 : une embauche en cours d'année, pas un oubli.
+    const { comparables, partiels } = separerComparables([
+      compteur("e1", 12),
+      compteur("e2", 11),
+      compteur("e3", 5),
+    ]);
+
+    expect(comparables.map((c) => c.educateurId)).toEqual(["e1", "e2"]);
+    expect(partiels).toBe(1);
+  });
+
+  it("garde tout le monde quand les présences sont voisines", () => {
+    const { comparables, partiels } = separerComparables([
+      compteur("e1", 12),
+      compteur("e2", 11),
+      compteur("e3", 10),
+    ]);
+
+    expect(comparables).toHaveLength(3);
+    expect(partiels).toBe(0);
+  });
+
+  it("ignore celui qui n'a jamais été affecté", () => {
+    // Il n'a pas commencé : il n'est ni comparable, ni en retard.
+    const { comparables, partiels } = separerComparables([
+      compteur("e1", 10),
+      compteur("e2", 0),
+    ]);
+
+    expect(comparables.map((c) => c.educateurId)).toEqual(["e1"]);
+    expect(partiels).toBe(0);
+  });
+
+  it("ne se casse pas sur une équipe vide", () => {
+    expect(separerComparables([])).toEqual({ comparables: [], partiels: 0 });
+  });
+
+  it("empêche un nouveau venu de gonfler l'écart", () => {
+    // Le cas réel : deux embauches de janvier faisaient afficher 7 au lieu de 3.
+    const equipe = [
+      { ...compteur("e1", 12), parQuart: { APRES_MIDI: 8 } },
+      { ...compteur("e2", 11), parQuart: { APRES_MIDI: 6 } },
+      { ...compteur("e3", 5), parQuart: { APRES_MIDI: 1 } },
+    ];
+
+    expect(ecartSurQuart(equipe, "APRES_MIDI")).toBe(7);
+    expect(
+      ecartSurQuart(separerComparables(equipe).comparables, "APRES_MIDI"),
+    ).toBe(2);
   });
 });
 

@@ -122,6 +122,40 @@ export function compteurDuQuart(
 }
 
 /**
+ * En deçà de cette part des jours du plus assidu, un éducateur n'a été présent
+ * qu'une partie de l'année.
+ *
+ * Une embauche en janvier, un congé prolongé : ces personnes tiennent
+ * mécaniquement moins de quarts. Les inclure dans l'écart ferait passer une
+ * situation normale pour un défaut de rotation, et l'indicateur crierait au
+ * loup toute l'année.
+ */
+export const SEUIL_ANNEE_COMPLETE = 0.7;
+
+export interface Comparables {
+  /** Éducateurs présents sur une part suffisante de l'année. */
+  comparables: CompteursEducateur[];
+  /** Éducateurs écartés parce que présents une partie de l'année seulement. */
+  partiels: number;
+}
+
+/**
+ * Sépare les éducateurs comparables de ceux qui n'ont fait qu'une partie de
+ * l'année. Un éducateur sans aucune journée n'entre dans aucune des deux
+ * catégories : il n'a pas commencé, il n'est pas « en retard ».
+ */
+export function separerComparables(
+  compteurs: Iterable<CompteursEducateur>,
+): Comparables {
+  const tous = [...compteurs].filter((c) => c.nbJourneesTravaillees > 0);
+  const maximum = Math.max(...tous.map((c) => c.nbJourneesTravaillees), 0);
+  const seuil = maximum * SEUIL_ANNEE_COMPLETE;
+
+  const comparables = tous.filter((c) => c.nbJourneesTravaillees >= seuil);
+  return { comparables, partiels: tous.length - comparables.length };
+}
+
+/**
  * Écart max-min sur un code de quart donné, tous éducateurs confondus.
  * Sert d'indicateur de santé au tableau de bord : un écart de 0 ou 1 signifie
  * que la rotation tient.

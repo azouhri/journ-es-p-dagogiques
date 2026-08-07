@@ -3,6 +3,7 @@ import "server-only";
 import {
   calculerCompteurs,
   ecartSurQuart,
+  separerComparables,
   type AffectationRealisee,
 } from "@/lib/domain/equite";
 import type { CompteursEducateur } from "@/lib/domain/types";
@@ -30,6 +31,10 @@ export interface TableauEquite {
   lignes: LigneEquite[];
   joursNonConfirmes: number;
   totalJours: number;
+  /** Éducateurs retenus dans le calcul des écarts. */
+  compares: number;
+  /** Éducateurs écartés, présents une partie de l'année seulement. */
+  partiels: number;
 }
 
 /**
@@ -90,14 +95,13 @@ export async function chargerEquite(
     affectations: realisees,
   });
 
-  // L'écart ne se mesure qu'entre éducateurs ACTIFS. Un collègue parti en
-  // cours d'année reste à zéro sur l'année suivante : l'inclure ferait
-  // apparaître un écart maximal permanent, qui ne dit rien de l'équité entre
-  // les personnes réellement en poste.
-  const compteursActifs = educateurs
-    .filter((e) => e.actif)
-    .map((e) => compteurs.get(e.id)!)
-    .filter(Boolean);
+  // Même règle que le tableau de bord : l'écart ne compare que des
+  // éducateurs présents sur une part comparable de l'année. Deux écrans qui
+  // annonceraient des écarts différents pour la même chose seraient pires que
+  // l'un ou l'autre pris seul.
+  const { comparables: compteursActifs, partiels } = separerComparables(
+    educateurs.filter((e) => e.actif).map((e) => compteurs.get(e.id)!).filter(Boolean),
+  );
 
   // §4.6 — un quart désactivé garde ses colonnes : désactiver la soirée
   // n'efface pas les soirées déjà travaillées. On part donc des types de
@@ -138,6 +142,8 @@ export async function chargerEquite(
       actif: e.actif,
       compteurs: compteurs.get(e.id)!,
     })),
+    compares: compteursActifs.length,
+    partiels,
     joursNonConfirmes: jours.filter(
       (j) => j.statutConfirmation === "A_CONFIRMER",
     ).length,
