@@ -58,9 +58,8 @@ export function FormulaireQuart({ quart }: { quart: QuartModifiable }) {
           <DialogHeader>
             <DialogTitle>{quart.libelle}</DialogTitle>
             <DialogDescription>
-              Modifier ce quart crée une nouvelle version de configuration. Les
-              journées déjà générées conservent les horaires sous lesquels elles
-              ont été produites.
+              Les journées déjà planifiées gardent leurs horaires actuels.
+              Seules les prochaines utiliseront ces valeurs.
             </DialogDescription>
           </DialogHeader>
 
@@ -121,12 +120,11 @@ export function FormulaireQuart({ quart }: { quart: QuartModifiable }) {
                 defaultChecked={quart.actif}
                 className="size-4"
               />
-              Quart actif — utilisé par la génération
+              Quart utilisé
               <Aide titre="Désactiver un quart">
                 <p>
-                  Désactiver un quart n&apos;efface pas son historique : les
-                  quarts déjà travaillés restent visibles au tableau
-                  d&apos;équité, dans une colonne marquée inactive.
+                  Décocher retire ce quart des prochains plannings. Les quarts
+                  déjà travaillés restent comptés dans l&apos;équité.
                 </p>
               </Aide>
             </label>

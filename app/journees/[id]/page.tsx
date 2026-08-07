@@ -169,11 +169,6 @@ export default async function PageJournee({
                 ? "Généré"
                 : "Validé"}
           </Badge>
-          {journee.versionConfiguration && (
-            <span className="text-xs text-muted-foreground">
-              configuration v{journee.versionConfiguration.numero}
-            </span>
-          )}
         </div>
       </div>
 
@@ -181,9 +176,8 @@ export default async function PageJournee({
 
       {verrouille && (
         <div className="rounded-md border border-muted bg-muted/40 p-4 text-sm text-muted-foreground">
-          Journée validée : les affectations prévues sont figées. Les présences
-          ont été pré-remplies à «&nbsp;présent&nbsp;» ; il ne reste qu&apos;à
-          saisir les exceptions.
+          Journée validée : le planning ne peut plus être modifié. Il reste à
+          saisir les présences.
         </div>
       )}
 
@@ -213,8 +207,8 @@ export default async function PageJournee({
         description="Liste des élèves confirmés."
         aide={
           <p>
-            La collecte des réponses des parents reste hors système : on saisit
-            ici la liste déjà confirmée.
+            Inscrire les élèves dont la participation est confirmée. Les
+            réponses des parents se collectent en dehors de l&apos;application.
           </p>
         }
       >
@@ -233,9 +227,9 @@ export default async function PageJournee({
         description="Tous cochés par défaut ; décocher les absents."
         aide={
           <p>
-            Un éducateur décoché est ignoré par la génération, et son retard est
-            reporté sur la journée suivante — les compteurs le rattrapent
-            d'eux-mêmes.
+            Un éducateur décoché ne sera pas affecté ce jour-là. Il sera
+            prioritaire lors des prochaines journées, de façon à ce que
+            personne ne se retrouve lésé sur l&apos;année.
           </p>
         }
       >
@@ -269,12 +263,12 @@ export default async function PageJournee({
         numero={4}
         titre="Vérifier les tranches d'âge et l'effectif"
         etat={etats[3]}
-        description="Constitution à blanc, sans rien enregistrer."
+        description="Aperçu des groupes et de l'effectif nécessaire."
         aide={
           <p>
-            Revérifier après toute modification des élèves, des tranches ou des
-            disponibilités : rien n'est écrit tant que la génération n'est pas
-            lancée.
+Un aperçu, rien de plus : aucun planning n'est encore créé.
+            Relancer la vérification après avoir modifié les élèves, les
+            tranches d'âge ou les disponibilités.
           </p>
         }
       >
@@ -299,12 +293,11 @@ export default async function PageJournee({
         titre="Générer"
         etat={etats[4]}
         raisonAttente="Inscrire au moins un élève à l'étape 2 avant de générer."
-        description="Groupes puis planning, quart par quart."
+        description="Constitue les groupes, puis répartit les éducateurs."
         aide={
           <p>
-            L&apos;effectif est contrôlé à l&apos;étape 4 avant toute écriture :
-            une génération impossible est refusée sans toucher au planning
-            existant.
+S'il manque des éducateurs, l'étape 4 le signale d'abord : le
+            planning existant n'est jamais effacé pour rien.
           </p>
         }
       >
@@ -348,8 +341,9 @@ export default async function PageJournee({
         description="Cocher deux affectations pour les permuter."
         aide={
           <p>
-            Le système signale qu'une permutation dégrade l'équité, sans
-            l'interdire : l'affectation d'origine découlait des compteurs.
+La répartition proposée tient compte de ce que chacun a déjà
+            fait cette année. Une permutation reste possible, mais elle peut
+            créer un déséquilibre.
           </p>
         }
       >
@@ -383,11 +377,11 @@ export default async function PageJournee({
         titre="Valider"
         etat={etats[6]}
         raisonAttente="Générer le planning à l'étape 5 avant de le valider."
-        description="Fige le planning prévu."
+        description="Rend le planning définitif."
         aide={
           <p>
-            Les présences sont pré-remplies à « présent » : il ne restera que
-            les exceptions à saisir.
+Tout le monde est alors noté présent d'avance : le jour venu, il
+            n'y aura que les absences et les remplacements à saisir.
           </p>
         }
       >
@@ -417,8 +411,8 @@ export default async function PageJournee({
         description="PDF pour affichage, Excel pour retraitement."
         aide={
           <p>
-            Les fichiers sont fabriqués par l'application : aucune donnée
-            d'élève n'est transmise à un service tiers.
+Les fichiers sont produits par l'application : aucune information
+            sur les élèves n'est envoyée ailleurs.
           </p>
         }
       >

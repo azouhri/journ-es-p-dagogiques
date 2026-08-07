@@ -150,7 +150,7 @@ export async function previsualiserGroupes(
 
   const config = await chargerConfiguration(journee.anneeScolaireId);
   if (!config) {
-    return { ok: false, faisable: false, message: "Configuration introuvable.", ...vide };
+    return { ok: false, faisable: false, message: "Les paramètres de l'année scolaire ne sont pas définis.", ...vide };
   }
 
   const annee = await prisma.anneeScolaire.findUniqueOrThrow({
@@ -304,7 +304,7 @@ export async function genererPlanning(
   }
 
   const config = await chargerConfiguration(journee.anneeScolaireId);
-  if (!config) return { ok: false, message: "Configuration introuvable." };
+  if (!config) return { ok: false, message: "Les paramètres de l'année scolaire ne sont pas définis." };
 
   const annee = await prisma.anneeScolaire.findUniqueOrThrow({
     where: { id: journee.anneeScolaireId },
@@ -595,6 +595,6 @@ export async function validerJournee(
   return {
     ok: true,
     message:
-      "Journée validée. Les présences sont pré-remplies à « présent » : il ne reste qu'à saisir les exceptions.",
+      "Journée validée. Tout le monde est noté présent d'avance : il ne reste qu'à saisir les absences et les remplacements.",
   };
 }

@@ -68,13 +68,12 @@ export default async function TableauDeBord() {
                 {aConfirmer} journée(s) en attente de confirmation
                 <Aide titre="Pourquoi ce rappel">
                   <p>
-                    Les présences sont pré-remplies à «&nbsp;présent&nbsp;».
-                    Une journée non confirmée n&apos;est pas fausse, elle est
-                    seulement non vérifiée.
+                    Tout le monde y est noté présent d&apos;avance. Ces
+                    journées ne sont pas fausses, elles n&apos;ont simplement
+                    pas encore été vérifiées.
                   </p>
                   <p>
-                    Le rappel sert à ce que les absences réelles ne soient pas
-                    oubliées.
+                    Ce rappel évite d&apos;oublier les absences.
                   </p>
                 </Aide>
               </CardTitle>

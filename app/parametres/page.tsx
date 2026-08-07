@@ -35,14 +35,14 @@ export default async function PageParametres() {
 
       <h1 className="flex items-center gap-1.5 text-2xl font-semibold tracking-tight">
         Paramètres
-        <Aide titre="Configuration et versions">
+        <Aide titre="Modifier les paramètres">
           <p>
-            Aucun comportement de l&apos;algorithme n&apos;est codé en dur :
-            tout ce qui suit est relu à chaque génération.
+            Ces réglages s&apos;appliquent aux prochaines journées créées.
           </p>
           <p>
-            Chaque modification crée une version ; les versions ne sont jamais
-            écrasées, et une journée déjà générée garde la sienne.
+            Les journées déjà planifiées gardent les horaires et les règles en
+            vigueur au moment où elles ont été faites : changer un horaire
+            aujourd&apos;hui ne modifie rien à ce qui a déjà été travaillé.
           </p>
         </Aide>
       </h1>

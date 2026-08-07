@@ -73,8 +73,8 @@ export function FormulaireEducateur({
               {educateur ? "Modifier l'éducateur" : "Ajouter un éducateur"}
             </DialogTitle>
             <DialogDescription>
-              Le statut d&apos;emploi est informatif : l&apos;équité ne le
-              pondère pas. Une indisponibilité se déclare journée par journée.
+              Une indisponibilité se déclare journée par journée, au moment
+              de planifier.
             </DialogDescription>
           </DialogHeader>
 
@@ -145,8 +145,8 @@ export function FormulaireEducateur({
                       Aucune case cochée = toutes les tranches.
                     </p>
                     <p>
-                      Ce choix ne contraint la génération que si la politique
-                      correspondante est activée dans les réglages.
+                      Ce choix n&apos;est pris en compte que si la règle
+                      correspondante est activée dans les paramètres.
                     </p>
                   </Aide>
                 </Label>

@@ -58,11 +58,8 @@ export function FormulaireConnexion({ suite }: { suite?: string }) {
   return (
     <Card className="w-full max-w-sm">
       <CardHeader>
-        <CardTitle>Connexion</CardTitle>
-        <CardDescription>
-          Planning des journées pédagogiques — accès réservé au personnel du
-          service de garde.
-        </CardDescription>
+        <CardTitle>Journées pédagogiques</CardTitle>
+        <CardDescription>Service de garde en milieu scolaire</CardDescription>
       </CardHeader>
 
       <CardContent>
@@ -103,11 +100,6 @@ export function FormulaireConnexion({ suite }: { suite?: string }) {
             {enCours ? "Connexion…" : "Se connecter"}
           </Button>
         </form>
-
-        <p className="mt-4 text-xs text-muted-foreground">
-          Les comptes sont créés par la responsable dans le tableau de bord
-          Supabase. Aucune inscription libre.
-        </p>
       </CardContent>
     </Card>
   );

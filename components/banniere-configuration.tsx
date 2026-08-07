@@ -2,11 +2,11 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import type { EtatConnexion } from "@/lib/data/connexion";
 
 /**
- * Bandeau affiché quand la base est injoignable.
+ * Bandeau affiché quand les données ne sont pas joignables.
  *
  * Volontairement un bandeau et non un écran plein : le reste de la page —
- * notamment la prévisualisation d'import, qui ne touche pas à la base — doit
- * rester accessible et utilisable.
+ * notamment la prévisualisation d'un import, qui ne touche pas à la base —
+ * doit rester utilisable.
  */
 export function BanniereConfiguration({
   etat,
@@ -16,15 +16,7 @@ export function BanniereConfiguration({
   return (
     <Alert variant="destructive">
       <AlertTitle>{etat.titre}</AlertTitle>
-      <AlertDescription className="space-y-2">
-        <p className="font-mono text-xs break-all">{etat.message}</p>
-        <p>{etat.detail}</p>
-        <p className="text-xs">
-          Les listes restent vides et l&apos;enregistrement est désactivé, mais
-          la prévisualisation d&apos;un fichier CSV fonctionne : elle ne touche
-          pas à la base.
-        </p>
-      </AlertDescription>
+      <AlertDescription>{etat.message}</AlertDescription>
     </Alert>
   );
 }

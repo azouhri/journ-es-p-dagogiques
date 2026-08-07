@@ -75,9 +75,8 @@ export default async function PageEleves({
               facultatif.
             </p>
             <p>
-              Un réglage détermine lequel des deux sert à constituer les
-              groupes ; basculer de l&apos;un à l&apos;autre ne demande aucune
-              migration de données.
+              Les groupes se constituent d&apos;après l&apos;un ou l&apos;autre,
+              au choix dans les paramètres.
             </p>
           </Aide>
         </h1>

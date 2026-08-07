@@ -84,13 +84,11 @@ export default async function PagePresences({
           Présences
           <Aide titre="Saisie des présences">
             <p>
-              Tout le monde est pré-rempli à «&nbsp;présent&nbsp;» dès la
-              validation du planning : il ne reste qu&apos;à saisir les
-              exceptions, puis à confirmer la journée.
+              Tout le monde est noté présent d&apos;avance : il n&apos;y a que
+              les absences et les remplacements à saisir.
             </p>
             <p>
-              Une journée non confirmée n&apos;est pas fausse, elle est
-              seulement non vérifiée.
+              Confirmer la journée une fois les vérifications faites.
             </p>
           </Aide>
         </p>
@@ -214,20 +212,13 @@ export default async function PagePresences({
                   Ratio par quart
                   <Aide titre="Comment le ratio est calculé">
                     <p>
-                      Maximum réglementaire : 1 éducateur pour {plafond} élèves
+                      Maximum permis : 1 éducateur pour {plafond} élèves
                       présents.
                     </p>
                     <p>
                       Seuls les élèves présents <em>pendant le quart</em>{" "}
-                      comptent — à l&apos;ouverture, la plupart ne sont pas
-                      encore arrivés. Côté personnel, un titulaire absent ne
-                      compte pas ; un remplaçant désigné compte.
-                    </p>
-                    <p>
-                      L&apos;accueil et la fermeture répondent à un besoin de
-                      surveillance à effectif fixe, pas d&apos;encadrement par
-                      groupe : ils ne sont contrôlés contre le plafond que
-                      lorsque les heures d&apos;arrivée sont relevées.
+                      comptent. Un éducateur absent ne compte pas ; un
+                      remplaçant désigné compte.
                     </p>
                   </Aide>
                 </CardTitle>
@@ -273,15 +264,13 @@ export default async function PagePresences({
                           Effectif fixe
                           <Aide titre="Ratio non calculé">
                             <p>
-                              L&apos;effectif de ce quart est fixé par la
-                              configuration : c&apos;est de la surveillance à
-                              l&apos;accueil, pas de l&apos;encadrement par
-                              groupe.
+                              À l&apos;accueil, les élèves arrivent peu à peu :
+                              sans heures d&apos;arrivée notées, on ne peut pas
+                              savoir combien étaient présents.
                             </p>
                             <p>
-                              Le ratio n&apos;est pas calculé faute
-                              d&apos;heures d&apos;arrivée relevées : on ne sait
-                              pas combien d&apos;élèves étaient réellement là.
+                              Le nombre d&apos;éducateurs pour ce quart est
+                              défini dans les paramètres.
                             </p>
                           </Aide>
                         </p>
@@ -341,8 +330,8 @@ export default async function PagePresences({
                       </span>{" "}
                       — prévu {a.quartLibelle},{" "}
                       {a.presence?.statut === "ABSENT"
-                        ? "absent : le quart n'est crédité à personne"
-                        : "remplacé : le quart est crédité au remplaçant"}
+                        ? "absent"
+                        : "remplacé"}
                     </p>
                   ))}
                 </CardContent>

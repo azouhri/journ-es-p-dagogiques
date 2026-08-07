@@ -443,7 +443,7 @@ export function genererJour(entree: EntreeGeneration): ResultatGeneration {
           `${quart.libelle} : aucun éducateur habilité n'est disponible pour ` +
           `${groupesNonPourvus.map((g) => g.libelle).join(", ")}. ` +
           `Déclarer cette tranche pour un éducateur disponible, ou assouplir ` +
-          `la politique des tranches d'âge dans les réglages.`,
+          `la règle des tranches d'âge dans les paramètres.`,
       });
     }
 

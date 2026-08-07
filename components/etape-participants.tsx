@@ -264,8 +264,8 @@ export function EtapeParticipants({
           </p>
           <p>
             Supprimer les lignes non voulues — ou mettre «&nbsp;non&nbsp;» —
-            puis réimporter remplace la sélection. Sur plusieurs centaines
-            d&apos;élèves, c&apos;est plus rapide que de cocher.
+            puis réimporter le fichier. Sur plusieurs centaines d&apos;élèves,
+            c&apos;est plus rapide que de cocher.
           </p>
         </Aide>
       </div>

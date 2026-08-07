@@ -27,13 +27,14 @@ export default async function PageEquite() {
         Équité
         <Aide titre="Ce que comptent ces chiffres">
           <p>
-            Un compteur par éducateur et par type de quart, recalculé à la
-            demande depuis les affectations croisées avec les présences.
+            Le nombre de fois où chacun a tenu chaque quart, sur
+            l&apos;année scolaire.
           </p>
           <p>
-            Ce sont les compteurs du <strong>réalisé</strong> : une absence ne
+            Seul ce qui a réellement été travaillé compte : une absence ne
             crédite personne, un remplacement crédite le remplaçant. Corriger
-            une présence se répercute immédiatement ici.
+            une présence, même des semaines plus tard, met ces chiffres à jour
+            aussitôt.
           </p>
         </Aide>
       </h1>
@@ -59,9 +60,8 @@ export default async function PageEquite() {
               {tableau.joursNonConfirmes} journée(s) non confirmée(s)
               <Aide titre="Effet sur les compteurs">
                 <p>
-                  Leurs présences sont pré-remplies à «&nbsp;présent&nbsp;» :
-                  les compteurs les comptent donc comme travaillées, ce qui
-                  reste à vérifier.
+                  Leurs présences n&apos;ont pas encore été vérifiées : les
+                  chiffres ci-dessous les comptent comme travaillées.
                 </p>
               </Aide>
             </div>
